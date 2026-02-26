@@ -1,0 +1,212 @@
+\documentclass[aspectratio=169,10pt]{beamer}
+
+% ---------- Theme & Colors ----------
+\usetheme{default}
+\usecolortheme{default}
+
+% Remove navigation symbols
+\setbeamertemplate{navigation symbols}{}
+
+% Custom palette — deep navy + warm accent
+\definecolor{Primary}{HTML}{1B2A4A}
+\definecolor{Accent}{HTML}{E8913A}
+\definecolor{LightBg}{HTML}{F5F5F0}
+\definecolor{DarkText}{HTML}{2C2C2C}
+\definecolor{MutedText}{HTML}{6B6B6B}
+
+\setbeamercolor{structure}{fg=Primary}
+\setbeamercolor{palette primary}{bg=Primary,fg=white}
+\setbeamercolor{frametitle}{fg=Primary,bg=white}
+\setbeamercolor{title}{fg=Primary}
+\setbeamercolor{subtitle}{fg=MutedText}
+\setbeamercolor{author}{fg=DarkText}
+\setbeamercolor{date}{fg=MutedText}
+\setbeamercolor{item}{fg=Accent}
+\setbeamercolor{block title}{bg=Primary,fg=white}
+\setbeamercolor{block body}{bg=LightBg,fg=DarkText}
+\setbeamercolor{block title alerted}{bg=Accent,fg=white}
+\setbeamercolor{block body alerted}{bg=LightBg,fg=DarkText}
+\setbeamercolor{footline}{fg=MutedText}
+\setbeamercolor{normal text}{fg=DarkText}
+
+% Fonts
+\setbeamerfont{title}{size=\Large,series=\bfseries}
+\setbeamerfont{subtitle}{size=\normalsize}
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamerfont{framesubtitle}{size=\small}
+\setbeamerfont{footline}{size=\tiny}
+
+% Frame title formatting
+\setbeamertemplate{frametitle}{%
+  \vskip6pt%
+  \insertframetitle%
+  \ifx\insertframesubtitle\empty\else%
+  \\[2pt]{\usebeamerfont{framesubtitle}\usebeamercolor[fg]{subtitle}\insertframesubtitle}%
+  \fi%
+  \vskip2pt%
+  {\color{Accent}\hrule height 1.5pt}%
+  \vskip4pt%
+}
+
+% Minimal footline: short title | page number
+\setbeamertemplate{footline}{%
+  \hbox to \paperwidth{%
+    \hskip12pt%
+    {\usebeamerfont{footline}\usebeamercolor[fg]{footline}\insertshorttitle}%
+    \hfill%
+    {\usebeamerfont{footline}\usebeamercolor[fg]{footline}\insertframenumber\,/\,\inserttotalframenumber}%
+    \hskip12pt%
+  }%
+  \vskip6pt%
+}
+
+% Itemize: accent-colored bullets
+\setbeamertemplate{itemize item}{\color{Accent}$\bullet$}
+\setbeamertemplate{itemize subitem}{\color{Accent}$\circ$}
+\setbeamertemplate{itemize subsubitem}{\color{MutedText}\textendash}
+
+% ---------- Packages ----------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amsfonts,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{tikz}
+
+% ---------- Metadata ----------
+\title{Paper Title}
+\subtitle{Venue / Workshop Name}
+\author{Author Name}
+\institute{Institution}
+\date{\today}
+
+\begin{document}
+
+% ===== Title =====
+{
+  \setbeamercolor{background canvas}{bg=Primary}
+  \setbeamertemplate{footline}{}
+  \begin{frame}[plain]
+    \vfill
+    \begin{center}
+      {\Large\bfseries\color{white}\inserttitle}\\[12pt]
+      {\normalsize\color{Accent}\insertsubtitle}\\[24pt]
+      {\small\color{white!80}\insertauthor}\\[4pt]
+      {\footnotesize\color{white!60}\insertinstitute}\\[4pt]
+      {\footnotesize\color{white!50}\insertdate}
+    \end{center}
+    \vfill
+  \end{frame}
+}
+
+% ===== Outline =====
+\begin{frame}{Outline}
+  \tableofcontents
+\end{frame}
+
+% ===== Motivation =====
+\section{Motivation}
+
+\begin{frame}{Motivation}
+  \begin{itemize}
+    \item Problem statement and why it matters
+    \item Key challenge or gap in existing work
+    \item Our approach in one sentence
+  \end{itemize}
+\end{frame}
+
+% ===== Method =====
+\section{Method}
+
+\begin{frame}{Method}
+  \framesubtitle{Overview}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \begin{itemize}
+        \item Step 1: Description
+        \item Step 2: Description
+        \item Step 3: Description
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      % \includegraphics[width=\linewidth]{figs/method.pdf}
+      \begin{block}{Key Equation}
+        \begin{equation*}
+          \mathcal{L} = \mathbb{E}_{x \sim p(x)} \left[ f_\theta(x) \right]
+        \end{equation*}
+      \end{block}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% ===== Experiments =====
+\section{Experiments}
+
+\begin{frame}{Experiments}
+  \framesubtitle{Main Results}
+  \begin{table}
+    \centering
+    \begin{tabular}{lcc}
+      \toprule
+      Method & Metric 1 & Metric 2 \\
+      \midrule
+      Baseline A & 0.00 & 0.00 \\
+      Baseline B & 0.00 & 0.00 \\
+      \textbf{Ours} & \textbf{0.00} & \textbf{0.00} \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+\end{frame}
+
+\begin{frame}{Qualitative Results}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \begin{block}{Input}
+        % \includegraphics[width=\linewidth]{figs/input.pdf}
+        \centering\textit{(figure placeholder)}
+      \end{block}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \begin{block}{Output}
+        % \includegraphics[width=\linewidth]{figs/output.pdf}
+        \centering\textit{(figure placeholder)}
+      \end{block}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% ===== Conclusion =====
+\section{Conclusion}
+
+\begin{frame}{Conclusion}
+  \begin{itemize}
+    \item Summary of contributions
+    \item Key takeaway
+    \item Future work directions
+  \end{itemize}
+
+  \vfill
+  \begin{alertblock}{Code \& Paper}
+    \url{https://github.com/username/repo}
+  \end{alertblock}
+\end{frame}
+
+% ===== Thank You =====
+{
+  \setbeamercolor{background canvas}{bg=Primary}
+  \setbeamertemplate{footline}{}
+  \begin{frame}[plain]
+    \vfill
+    \begin{center}
+      {\Large\bfseries\color{white}Thank You}\\[16pt]
+      {\normalsize\color{Accent}Questions?}\\[24pt]
+      {\small\color{white!70}\insertauthor}\\[4pt]
+      {\footnotesize\color{white!50}email@example.com}
+    \end{center}
+    \vfill
+  \end{frame}
+}
+
+\end{document}

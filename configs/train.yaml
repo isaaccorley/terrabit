@@ -1,0 +1,29 @@
+# @package _global_
+
+defaults:
+  - _self_
+
+seed: 0
+
+trainer:
+  accelerator: auto
+  max_epochs: 100
+  precision: 32-true
+  log_every_n_steps: 10
+
+model:
+  name: resnet50
+  pretrained: true
+  num_classes: 10
+  lr: 1e-3
+  weight_decay: 1e-4
+
+data:
+  root: data/
+  batch_size: 32
+  num_workers: 4
+
+wandb:
+  project: mypackage
+  name: null
+  tags: []
