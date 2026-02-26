@@ -3,13 +3,13 @@ build-backend = "uv_build"
 requires = [ "uv-build>=0.9.3,<0.10" ]
 
 [project]
-name = "mypackage"
+name = "terrabit"
 version = "0.1.0"
-description = "A research Python package."
+description = "Intrinsic-dimension-aware embedding compression."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-  { name = "Your Name", email = "your.email@example.com" },
+  { name = "Isaac Corley", email = "isaac.corley@proton.me" },
 ]
 requires-python = ">=3.13"
 classifiers = [
@@ -20,16 +20,12 @@ classifiers = [
 ]
 
 dependencies = [
-  "hydra-core",
-  "lightning",
   "numpy",
-  "omegaconf",
+  "pyarrow",
   "rich",
-  "timm",
-  "torch",
-  "torchmetrics",
-  "torchvision",
-  "wandb",
+  "scikit-dimension",
+  "scikit-learn",
+  "scipy",
 ]
 
 [dependency-groups]
@@ -108,7 +104,7 @@ lint.extend-per-file-ignores."tests/**" = [
   "SIM117",
   "SIM300",
 ]
-lint.isort.known-first-party = [ "mypackage" ]
+lint.isort.known-first-party = [ "terrabit" ]
 
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]

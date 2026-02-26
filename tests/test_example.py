@@ -1,5 +1,5 @@
-import mypackage
+import terrabit
 
 
 def test_import() -> None:
-    assert mypackage is not None
+    assert terrabit is not None

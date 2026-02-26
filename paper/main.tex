@@ -17,6 +17,7 @@
 \usepackage{microtype}
 \usepackage{xcolor}
 \usepackage{graphicx}
+\usepackage{siunitx}
 
 \title{Paper Title}
 
@@ -46,6 +47,19 @@
 
 \section{Experiments}
 \label{sec:experiments}
+
+\subsection{Dataset}
+\label{sec:dataset}
+
+We evaluate on a large-scale geospatial embedding dataset extracted from a remote sensing foundation model.
+The dataset consists of \num{49785116} embeddings ($d{=}1024$, \texttt{float32}) stored across \num{1021} Parquet files totaling approximately 183\,GB on disk.
+Files are Hive-partitioned by geohash prefix (\num{511} level-2 geohash cells), year (2024--2025), and month, with per-file row counts ranging from \num{174} to \num{77856} (mean ${\approx}\num{30148}$).
+Each record carries spatial metadata (geohash, bounding box, WKB geometry), temporal metadata (collection timestamp), and provenance identifiers (chip, cell, raster, STAC item).
+The embedding column is stored as a variable-length \texttt{list<float>} array with uniform length 1024 across all records.
+
+% TODO: add embedding source model name and layer once confirmed
+% TODO: add ID estimation results once computed
+% TODO: add distribution statistics (mean, variance, anisotropy)
 
 \section{Conclusion}
 \label{sec:conclusion}
