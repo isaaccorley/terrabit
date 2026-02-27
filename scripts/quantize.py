@@ -47,7 +47,7 @@ def _resolve_jobs(*, requested_jobs: int, n_files: int, n_methods: int) -> int:
     cpu_count = os.cpu_count() or 1
     auto_jobs = max(1, cpu_count // 2)
     if n_methods >= 6:
-        auto_jobs = max(1, int(round(auto_jobs * 0.9)))
+        auto_jobs = max(1, round(auto_jobs * 0.9))
     auto_jobs = min(auto_jobs, n_files)
     return max(1, auto_jobs)
 
@@ -135,12 +135,12 @@ def _process_one_file(
         if "scale" in quantized:
             quant_meta["scale"] = np.asarray(quantized["scale"], dtype=np.float32).tolist()
         if "zero_point" in quantized:
-            quant_meta["zero_point"] = np.asarray(quantized["zero_point"], dtype=np.float32).tolist()
+            quant_meta["zero_point"] = np.asarray(
+                quantized["zero_point"], dtype=np.float32
+            ).tolist()
 
         schema_meta = dict(quantized_table.schema.metadata or {})
-        schema_meta[b"quantization"] = json.dumps(
-            quant_meta, separators=(",", ":")
-        ).encode("utf-8")
+        schema_meta[b"quantization"] = json.dumps(quant_meta, separators=(",", ":")).encode("utf-8")
         quantized_table = quantized_table.replace_schema_metadata(schema_meta)
 
         out_file = output_root / method / rel_path
@@ -236,9 +236,7 @@ def main() -> None:
             completed += 1
             total_rows += int(result["rows"])
             if completed % 25 == 0 or completed == len(file_paths):
-                console.print(
-                    f"processed {completed}/{len(file_paths)} files  rows={total_rows}"
-                )
+                console.print(f"processed {completed}/{len(file_paths)} files  rows={total_rows}")
 
     console.print("\n[bold green]Quantization complete[/bold green]")
     for method in methods:

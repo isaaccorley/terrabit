@@ -232,8 +232,6 @@ __marimo__/
 *.ind
 *.nlo
 *.nls
-paper/*.pdf
-slides/*.pdf
 
 # Claude Code
 .claude/

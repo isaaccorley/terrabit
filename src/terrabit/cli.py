@@ -30,7 +30,7 @@ def _serialize(obj: object) -> object:
     return str(obj)
 
 
-def cmd_estimate_id(args: argparse.Namespace) -> int:  # noqa: D103
+def cmd_estimate_id(args: argparse.Namespace) -> int:
     path = args.path
     report = run_estimate_id(
         path,
@@ -45,11 +45,11 @@ def cmd_estimate_id(args: argparse.Namespace) -> int:  # noqa: D103
         with Path(args.output).open("w") as f:
             json.dump(_serialize(report), f, indent=2)
     else:
-        print(json.dumps(_serialize(report), indent=2))  # noqa: T201
+        print(json.dumps(_serialize(report), indent=2))
     return 0
 
 
-def cmd_compress(args: argparse.Namespace) -> int:  # noqa: D103
+def cmd_compress(args: argparse.Namespace) -> int:
     dims = tuple(int(x) for x in args.target_dim.split(","))
     results = run_compress(
         args.path,
@@ -64,11 +64,11 @@ def cmd_compress(args: argparse.Namespace) -> int:  # noqa: D103
         with Path(args.report).open("w") as f:
             json.dump(_serialize({"compression_results": results}), f, indent=2)
     for r in results:
-        print(f"Wrote {r['output_path']}: n_rows={r['n_rows']}")  # noqa: T201
+        print(f"Wrote {r['output_path']}: n_rows={r['n_rows']}")
     return 0
 
 
-def cmd_full(args: argparse.Namespace) -> int:  # noqa: D103
+def cmd_full(args: argparse.Namespace) -> int:
     target_dims: tuple[int, ...] | str = "auto"
     if args.target_dim:
         target_dims = tuple(int(x) for x in args.target_dim.split(","))
@@ -89,11 +89,11 @@ def cmd_full(args: argparse.Namespace) -> int:  # noqa: D103
     )
     if args.report:
         save_report(report, args.report)
-        print(f"Report saved to {args.report}")  # noqa: T201
+        print(f"Report saved to {args.report}")
     return 0
 
 
-def main() -> int:  # noqa: D103
+def main() -> int:
     parser = argparse.ArgumentParser(prog="terrabit")
     subparsers = parser.add_subparsers(dest="command", required=True)
 

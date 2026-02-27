@@ -16,7 +16,12 @@ import numpy as np
 from rich.console import Console
 
 from terrabit.io import iter_embedding_batches
-from terrabit.metrics import cosine_similarity_correlation, knn_recall_multi, reconstruction_cosine, reconstruction_mse
+from terrabit.metrics import (
+    cosine_similarity_correlation,
+    knn_recall_multi,
+    reconstruction_cosine,
+    reconstruction_mse,
+)
 
 console = Console()
 KNNMetric = Literal["cosine", "euclidean"]
@@ -59,7 +64,7 @@ def _serialize(obj: object) -> object:
     if isinstance(obj, np.floating):
         return float(obj)
     if isinstance(obj, np.ndarray):
-        return cast(Any, obj).tolist()
+        return cast("Any", obj).tolist()
     if isinstance(obj, tuple):
         return list(obj)
     if isinstance(obj, dict):
@@ -103,10 +108,8 @@ def main() -> None:
     parsed_knn_metrics = tuple(x.strip() for x in args.knn_metrics.split(",") if x.strip())
     invalid_metrics = sorted(set(parsed_knn_metrics) - set(DEFAULT_KNN_METRICS))
     if invalid_metrics:
-        raise ValueError(
-            f"Unknown kNN metrics: {invalid_metrics}. Allowed: {DEFAULT_KNN_METRICS}"
-        )
-    knn_metrics = cast(tuple[KNNMetric, ...], parsed_knn_metrics)
+        raise ValueError(f"Unknown kNN metrics: {invalid_metrics}. Allowed: {DEFAULT_KNN_METRICS}")
+    knn_metrics = cast("tuple[KNNMetric, ...]", parsed_knn_metrics)
     if not ks:
         raise ValueError("At least one k is required")
     if not knn_metrics:

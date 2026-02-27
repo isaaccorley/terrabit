@@ -1,5 +1,6 @@
 import numpy as np
 
+from terrabit._typing import NDArrayF32
 from terrabit.metrics import (
     cosine_similarity_correlation,
     effective_rank,
@@ -11,7 +12,7 @@ from terrabit.metrics import (
 )
 
 
-def _rand_embeddings(n=200, d=64, seed=42):
+def _rand_embeddings(n: int = 200, d: int = 64, seed: int = 42) -> NDArrayF32:
     rng = np.random.default_rng(seed)
     return rng.standard_normal((n, d)).astype(np.float32)
 

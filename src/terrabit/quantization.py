@@ -40,8 +40,7 @@ def quantize_fp8(
     exponent_bits = (exponents + 7).astype(np.uint8)
 
     encoded = (sign << 7) | (exponent_bits << 3) | mantissa_q
-    encoded = np.where(x_abs == 0, np.uint8(0), encoded).astype(np.uint8)
-    return encoded
+    return np.where(x_abs == 0, np.uint8(0), encoded).astype(np.uint8)
 
 
 def dequantize_fp8(
@@ -241,7 +240,7 @@ def quantize_binary(x: NDArrayF32) -> np.ndarray[tuple[int, ...], np.dtype[np.ui
     Returns packed binary array of shape (n_samples, ceil(n_dims / 8)).
     """
     signs = (x > 0).astype(np.uint8)
-    n, d = signs.shape
+    _, d = signs.shape
     pad = (8 - d % 8) % 8
     if pad > 0:
         signs = np.pad(signs, ((0, 0), (0, pad)))
@@ -254,7 +253,7 @@ def dequantize_binary(
 ) -> NDArrayF32:
     """Unpack binary to +1/-1 float32."""
     bits = np.unpackbits(packed, axis=1)[:, :n_dims]
-    return (2.0 * bits.astype(np.float32) - 1.0)
+    return 2.0 * bits.astype(np.float32) - 1.0
 
 
 def hamming_distance(
@@ -263,7 +262,7 @@ def hamming_distance(
 ) -> np.ndarray[tuple[int, ...], np.dtype[np.int64]]:
     """Hamming distance between packed binary vectors. a: (n, k), b: (m, k) -> (n, m)."""
     xor = np.bitwise_xor(a[:, np.newaxis, :], b[np.newaxis, :, :])
-    popcount_lut = np.array([bin(i).count("1") for i in range(256)], dtype=np.int64)
+    popcount_lut = np.array([i.bit_count() for i in range(256)], dtype=np.int64)
     return popcount_lut[xor].sum(axis=2)
 
 

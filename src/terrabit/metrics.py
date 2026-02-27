@@ -62,8 +62,7 @@ def _cosine_sim_matrix(x: NDArrayF32) -> NDArrayF32:
     norms = np.linalg.norm(x, axis=1, keepdims=True)
     norms = np.where(norms > 0, norms, 1.0)
     x_normed = x / norms
-    sim = x_normed @ x_normed.T
-    return sim
+    return x_normed @ x_normed.T
 
 
 def cosine_similarity_correlation(

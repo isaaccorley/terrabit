@@ -73,7 +73,9 @@ def iter_embedding_batches(
     """Stream batches from all parquet files under *path*."""
     for file_path in iter_parquet_files(path):
         yield from iter_file_batches(
-            file_path, batch_size=batch_size, embedding_col=embedding_col,
+            file_path,
+            batch_size=batch_size,
+            embedding_col=embedding_col,
         )
 
 

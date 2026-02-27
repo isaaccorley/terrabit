@@ -4,7 +4,7 @@
 % Options: main, position, dandb, creativeai, sglblindworkshop, dblblindworkshop
 % Add "final" after track for camera-ready: e.g. [main, final]
 % Add "preprint" for arXiv: [preprint]
-\usepackage{neurips_2025}
+\usepackage[preprint]{neurips_2025}
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -19,13 +19,12 @@
 \usepackage{graphicx}
 \usepackage{siunitx}
 
-\title{Paper Title}
+\title{TerraBit: 1-bit Is All You Need for\\Earth Embedding Retrieval}
 
 \author{%
-  Author Name \\
-  Department \\
-  Institution \\
-  \texttt{email@example.com} \\
+  Isaac Corley \\
+  Independent Researcher \\
+  \texttt{isaac.corley@proton.me} \\
 }
 
 \begin{document}
@@ -33,17 +32,119 @@
 \maketitle
 
 \begin{abstract}
-  Abstract goes here.
+  Geospatial foundation models now produce billion-scale embedding corpora whose
+  storage and retrieval costs dominate deployment.
+  TerraBit asks a practical question: how far can we quantize 1024D Earth
+  embeddings while preserving nearest-neighbor structure needed for retrieval?
+  We present a reproducible pipeline that combines
+  intrinsic-dimension diagnostics,
+  label-free fidelity metrics, and a parallel Parquet transformation system that
+  preserves dataset schema and metadata while replacing only the
+  embedding column.
+  On \num{49785116} real embeddings across \num{1021} files, we show a smooth
+  compression-fidelity frontier from \(2\times\) (float16) to \(16.53\times\)
+  (1-bit binary) and complete full-corpus multi-method quantization in
+  \SI{45.2}{min} at \num{18358.77} rows/s.
 \end{abstract}
 
 \section{Introduction}
 \label{sec:intro}
 
+High-dimensional geospatial embeddings are useful for retrieval, deduplication,
+change analysis, and indexing, but they are expensive to move, store, and search
+at scale. In this setting, every byte per vector matters.
+
+TerraBit focuses on the deployment regime where embeddings are already produced,
+and the bottleneck is representation cost rather than model training.
+Our central claim is operational:
+\textit{1-bit embeddings can be useful for high-recall shortlist retrieval,
+  while higher-bit variants (int4/int8) provide strong quality at substantial
+compression.}
+
+We make three contributions.
+\begin{itemize}
+  \item A practical evaluation framework that combines intrinsic-dimension (ID)
+    estimates with label-free retrieval and geometry metrics.
+  \item A quantization suite spanning float16, fp8, int8, int4, int3, int2,
+    and binary (1-bit sign) under a common interface.
+  \item A production-oriented Parquet transformer that preserves non-embedding
+    columns and schema metadata, writes quantization metadata into
+    Parquet footers,
+    and runs in parallel over large partitioned datasets.
+\end{itemize}
+
+This paper is intentionally short and systems-oriented: we report concrete
+trade-offs, reproducible scripts, and limitations.
+
 \section{Related work}
 \label{sec:related}
 
+TerraBit sits at the intersection of three threads.
+First, dimensionality reduction and intrinsic-dimension analysis motivate that
+many high-dimensional representations have lower effective structure than their
+ambient dimension. Second, vector quantization and low-bit
+compression are common
+in large-scale retrieval systems because memory bandwidth and cache
+behavior often
+bound latency. Third, geospatial retrieval pipelines typically
+require preserving
+spatial metadata and storage layouts, not only vector fidelity.
+
+Our emphasis differs from model-centric compression work: we study
+post-hoc quantization of an existing, real embedding lake, and evaluate
+quality-cost trade-offs with label-free metrics and full-corpus throughput.
+
 \section{Method}
 \label{sec:method}
+
+\subsection{Problem setup}
+
+Given embeddings \(X = \{x_i\}_{i=1}^N\), \(x_i \in \mathbb{R}^{1024}\),
+we learn a quantized representation
+\(\hat{x}_i = \mathcal{Q}_m(x_i)\) under method \(m\), and optionally a
+dequantized approximation \(\tilde{x}_i\).
+We evaluate each method by storage footprint, end-to-end processing throughput,
+and neighborhood/geometry preservation.
+
+\subsection{Intrinsic-dimension diagnostics}
+
+Before compression sweeps, TerraBit estimates ID using MLE (Levina--Bickel),
+TwoNN, and local PCA participation ratio across multiple preprocessing variants
+(raw, centered, L2-normalized, centered+L2).
+For robustness, the implementation performs stability runs on random subsamples
+and a neighborhood-size sweep for MLE.
+These diagnostics guide expected viable compression regimes.
+
+\subsection{Quantization family}
+
+We evaluate seven methods: \texttt{float16}, \texttt{fp8}, \texttt{int8},
+\texttt{int4}, \texttt{int3}, \texttt{int2}, and \texttt{binary}.
+
+For int\(b\) methods (\(b\in\{8,4,3,2\}\)), we use per-dimension affine
+quantization with calibration vectors \(s\) (scale) and \(z\) (zero-point),
+followed by fixed-width bit packing for \(b<8\).
+Binary quantization stores only sign bits (packed to bytes), yielding the
+strongest compression and the highest distortion.
+
+\subsection{Fidelity metrics}
+
+We report label-free metrics designed for retrieval settings:
+\begin{itemize}
+  \item kNN recall at \(k\in\{10,25,50\}\) for cosine and Euclidean distance.
+  \item Pairwise cosine-structure preservation (Spearman correlation).
+  \item Reconstruction cosine similarity and mean-squared error when
+    dequantization is available.
+\end{itemize}
+
+\subsection{Dataset-preserving transformation pipeline}
+
+The \texttt{scripts/quantize.py} pipeline processes partitioned Parquet files
+in parallel.
+For each file, it reads the embedding column, applies one or more quantizers,
+replaces only that column, and writes output under per-method roots while
+preserving directory structure and all non-embedding columns.
+Quantization metadata is written into Parquet footer metadata under key
+\texttt{quantization}.
 
 \section{Experiments}
 \label{sec:experiments}
@@ -51,29 +152,153 @@
 \subsection{Dataset}
 \label{sec:dataset}
 
-We evaluate on a large-scale geospatial embedding dataset extracted from a remote sensing foundation model.
-The dataset consists of \num{49785116} embeddings ($d{=}1024$, \texttt{float32}) stored across \num{1021} Parquet files totaling approximately 183\,GB on disk.
-Files are Hive-partitioned by geohash prefix (\num{511} level-2 geohash cells), year (2024--2025), and month, with per-file row counts ranging from \num{174} to \num{77856} (mean ${\approx}\num{30148}$).
-Each record carries spatial metadata (geohash, bounding box, WKB geometry), temporal metadata (collection timestamp), and provenance identifiers (chip, cell, raster, STAC item).
-The embedding column is stored as a variable-length \texttt{list<float>} array with uniform length 1024 across all records.
+We evaluate on a large-scale geospatial embedding dataset extracted
+from a remote sensing foundation model.
+The dataset consists of \num{49785116} embeddings ($d{=}1024$,
+\texttt{float32}) stored across \num{1021} Parquet files totaling
+approximately 183\,GB on disk.
+Files are Hive-partitioned by geohash prefix (\num{511} level-2
+geohash cells), year (2024--2025), and month, with per-file row
+counts ranging from \num{174} to \num{77856} (mean ${\approx}\num{30148}$).
+Each record carries spatial metadata (geohash, bounding box, WKB
+geometry), temporal metadata (collection timestamp), and provenance
+identifiers (chip, cell, raster, STAC item).
+The embedding column is stored as a variable-length
+\texttt{list<float>} array with uniform length 1024 across all records.
 
-% TODO: add embedding source model name and layer once confirmed
-% TODO: add ID estimation results once computed
-% TODO: add distribution statistics (mean, variance, anisotropy)
+\subsection{Protocol}
+
+We run two complementary evaluations.
+\begin{itemize}
+  \item \textbf{Quality regime}: \num{10000}-sample reservoir subset,
+    quantization-only sweep, label-free fidelity metrics.
+  \item \textbf{Systems regime}: full-corpus transformation
+    (\num{49785116} rows, \num{1021} files) over all methods with
+    \texttt{jobs=8}, reporting runtime and I/O throughput.
+\end{itemize}
+
+On the quality subset, centered-MLE ID is \num{17.0} (TwoNN \num{12.6},
+L2-centered MLE \num{20.0}), suggesting substantial structural redundancy
+relative to ambient dimension \(d=1024\).
+
+\subsection{Quality--compression frontier}
+
+Table~\ref{tab:quality-frontier} summarizes quality metrics from the full
+metrics run (all \num{1021} files), where reconstruction terms are exact over
+all rows and neighborhood/correlation terms are computed from reservoir
+sampling.
+\texttt{int8} and \texttt{fp8} retain near-original neighborhood quality at
+\(\approx 4\times\) compression.
+\texttt{int4} gives a strong middle point (\(6.29\times\) on-disk,
+kNN-C@10 \(\approx 0.91\)).
+Binary (1-bit) has the largest distortion but still preserves enough local
+structure (kNN-C@10 \(0.65\), kNN-E@10 \(0.66\)) to be practical as a coarse
+shortlist representation.
+
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Quantization quality from full-corpus evaluation.}
+    Values are rounded to two decimals. Reconstruction cosine is exact over all
+  rows; C@10/E@10 and cosine correlation are sampled metrics from a
+  \num{20000}-row reservoir.}
+  \label{tab:quality-frontier}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Method & Ratio ($\times$) & Recon. Cos $\uparrow$ & C@10
+    $\uparrow$ & E@10 $\uparrow$ & Cos Corr $\uparrow$ \\
+    \midrule
+    float16 & 1.86 & 1.00 & 1.00 & 1.00 & 1.00 \\
+    fp8 & 3.47 & 1.00 & 0.95 & 0.95 & 1.00 \\
+    int8 & 3.45 & 1.00 & 0.99 & 0.99 & 1.00 \\
+    int4 & 6.29 & 1.00 & 0.91 & 0.91 & 1.00 \\
+    int3 & 7.94 & 0.98 & 0.79 & 0.79 & 0.99 \\
+    int2 & 11.41 & 0.91 & 0.54 & 0.53 & 0.95 \\
+    binary & 16.53 & 0.49 & 0.65 & 0.66 & 0.79 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Quantization footprint and throughput}
+\label{sec:quant-footprint}
+
+We ran full-dataset quantization over all \num{1021} Parquet files
+and all \num{7} methods
+(\texttt{float16}, \texttt{fp8}, \texttt{int8}, \texttt{int4},
+\texttt{int3}, \texttt{int2}, \texttt{binary})
+with \texttt{jobs=8}.
+
+Table~\ref{tab:quant-footprint-throughput} summarizes run-level throughput and
+per-method storage footprint relative to the original
+\num{196366021856}-byte \texttt{float32} embedding corpus.
+
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Quantization footprint and throughput on the full dataset.}
+    Top block: end-to-end pipeline throughput for all methods combined.
+  Bottom block: per-method output size and effective compression.}
+  \label{tab:quant-footprint-throughput}
+  \begin{tabular}{lrrr}
+    \toprule
+    Metric & Value & Metric & Value \\
+    \midrule
+    Total rows & \num{49785116} & Total files & \num{1021} \\
+    Methods & \num{7} & Workers & \num{8} \\
+    Runtime (s) & \num{2711.79} & Runtime (min) & \num{45.2} \\
+    Rows/s & \num{18358.77} & Files/s & \num{0.3765} \\
+    Output throughput (MiB/s) & \num{106.90} & Total output (GiB) &
+    \num{283.10} \\
+    \midrule
+    Method & Size (GiB) & Size vs. original (\%) & Compression ($\times$) \\
+    \midrule
+    original (float32) & 182.88 & 100.00 & 1.00 \\
+    float16 & 98.24 & 53.72 & 1.86 \\
+    fp8 & 52.70 & 28.82 & 3.47 \\
+    int8 & 52.96 & 28.96 & 3.45 \\
+    int4 & 29.08 & 15.90 & 6.29 \\
+    int3 & 23.02 & 12.59 & 7.94 \\
+    int2 & 16.02 & 8.76 & 11.41 \\
+    binary & 11.07 & 6.05 & \textbf{16.53} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Discussion}
+
+Three observations stand out.
+First, the measured ID range (roughly 13--20 depending on estimator and
+preprocessing) is far below 1024, consistent with aggressive quantization
+without immediate retrieval collapse.
+Second, the quality decline is gradual from int8 to int2, enabling
+application-specific operating points rather than a single ``best'' method.
+Third, binary quantization is not quality-preserving in a strict sense, but it
+is operationally attractive as an extreme-compression stage for first-pass
+candidate generation.
+
+\subsection{Limitations}
+
+Our current study uses label-free proxies rather than task labels, and quality
+metrics are reported on a sampled subset for computational practicality.
+We also do not yet benchmark ANN index build/query latency end-to-end.
+Future work should add labeled downstream tasks, confidence intervals across
+multiple seeds, and hardware-specific retrieval benchmarks.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-\begin{ack}
-  Acknowledgments go here (omit for anonymous submission).
-\end{ack}
+TerraBit provides a practical compression workflow for large geospatial
+embedding corpora.
+On real 49.8M-row data, we show that low-bit quantization yields a clear
+quality-cost frontier, with int4/int8 as strong balanced choices and binary as
+an extreme-compression option for coarse retrieval stages.
+The code paths and evaluation protocol are designed to be reproducible and easy
+to adapt to other embedding lakes.
 
 \bibliographystyle{plainnat}
 \bibliography{references}
 
-\appendix
+%\appendix
 
-\section{Additional results}
-\label{app:results}
+%\section{Additional results}
+%\label{app:results}
 
 \end{document}

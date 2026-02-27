@@ -160,9 +160,7 @@ def _compress_pca(
     return x_comp, x_recon, meta
 
 
-def _compress_rp(
-    x: np.ndarray, n_components: int
-) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+def _compress_rp(x: np.ndarray, n_components: int) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
     """Random projection; pseudo-inverse reconstruction."""
     rp = GaussianRandomProjection(n_components=n_components, random_state=SEED)
     x_comp = rp.fit_transform(x).astype(np.float32)
@@ -215,9 +213,7 @@ def compression_sweep(
             knn_metrics = _knn_recall_suite(x_orig, x_comp)
             metrics = {
                 **knn_metrics,
-                "cosine_sim_corr": cosine_similarity_correlation(
-                    x_orig, x_comp, seed=SEED
-                ),
+                "cosine_sim_corr": cosine_similarity_correlation(x_orig, x_comp, seed=SEED),
                 "reconstruction_mse": reconstruction_mse(x_orig, x_recon),
                 "reconstruction_cosine": reconstruction_cosine(x_orig, x_recon),
                 "effective_rank_comp": effective_rank(x_comp),
@@ -283,9 +279,7 @@ def quantization_sweep(x_orig: np.ndarray) -> list[dict[str, Any]]:
             "reconstruction_mse": reconstruction_mse(x_orig, x_recon),
             "reconstruction_cosine": reconstruction_cosine(x_orig, x_recon),
             **knn_metrics,
-            "cosine_sim_corr": cosine_similarity_correlation(
-                x_orig, x_recon, seed=SEED
-            ),
+            "cosine_sim_corr": cosine_similarity_correlation(x_orig, x_recon, seed=SEED),
             "compression_ratio": round(orig_bytes / q_bytes, 2),
             "orig_bytes": orig_bytes,
             "quantized_bytes": q_bytes,
@@ -390,7 +384,7 @@ def _serialize(obj: object) -> object:
     if isinstance(obj, np.floating):
         return float(obj)
     if isinstance(obj, np.ndarray):
-        return cast(Any, obj).tolist()
+        return cast("Any", obj).tolist()
     if isinstance(obj, tuple):
         return list(obj)
     if isinstance(obj, dict):

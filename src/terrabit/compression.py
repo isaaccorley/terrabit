@@ -107,10 +107,7 @@ def _write_compressed_file(
                 new_field,
             )
             writer = pq.ParquetWriter(output_path, schema)
-        new_cols = [
-            col if name == embedding_col else rb.column(name)
-            for name in rb.schema.names
-        ]
+        new_cols = [col if name == embedding_col else rb.column(name) for name in rb.schema.names]
         out_batch = pa.RecordBatch.from_arrays(new_cols, schema=schema)
         writer.write_batch(out_batch)
         n_written += x_batch.shape[0]
@@ -138,10 +135,15 @@ def _write_compressed_dataset(
         out_file.parent.mkdir(parents=True, exist_ok=True)
 
         batches = iter_file_batches(
-            file_path, batch_size=batch_size, embedding_col=embedding_col,
+            file_path,
+            batch_size=batch_size,
+            embedding_col=embedding_col,
         )
         n = _write_compressed_file(
-            batches, str(out_file), embedding_col, transform_fn,
+            batches,
+            str(out_file),
+            embedding_col,
+            transform_fn,
         )
         n_written += n
         log.info("compressed %s -> %s  (%d rows)", rel, out_file, n)
@@ -179,11 +181,16 @@ def _run_ipca(
         def transform(x: NDArrayF32) -> NDArrayF32:
             return transform_pca_whitening(x, mean, components, ev)
     else:
+
         def transform(x: NDArrayF32) -> NDArrayF32:
             return ipca.transform(x).astype(np.float32, copy=False)
 
     n_written = _write_compressed_dataset(
-        path, output_path, embedding_col, transform, batch_size=batch_size,
+        path,
+        output_path,
+        embedding_col,
+        transform,
+        batch_size=batch_size,
     )
     method_name = "pca_whitening" if whiten else "ipca"
     return {
@@ -194,7 +201,7 @@ def _run_ipca(
     }
 
 
-def _run_rp(  # noqa: PLR0913
+def _run_rp(
     path: str,
     output_path: str,
     n_components: int,
@@ -211,12 +218,16 @@ def _run_rp(  # noqa: PLR0913
 
     rp = fit_random_projection(n_components, n_features, seed=seed)
     n_written = _write_compressed_dataset(
-        path, output_path, embedding_col, rp.transform, batch_size=batch_size,
+        path,
+        output_path,
+        embedding_col,
+        rp.transform,
+        batch_size=batch_size,
     )
     return {"method": "rp", "n_components": n_components, "n_rows": n_written}
 
 
-def compress_and_write(  # noqa: PLR0913
+def compress_and_write(
     path: str,
     output_path: str,
     method: CompressionMethod,
@@ -232,15 +243,28 @@ def compress_and_write(  # noqa: PLR0913
     """
     if method == "ipca":
         return _run_ipca(
-            path, output_path, n_components, batch_size, embedding_col,
+            path,
+            output_path,
+            n_components,
+            batch_size,
+            embedding_col,
         )
     if method == "rp":
         return _run_rp(
-            path, output_path, n_components, batch_size, embedding_col, seed,
+            path,
+            output_path,
+            n_components,
+            batch_size,
+            embedding_col,
+            seed,
         )
     if method == "pca_whitening":
         return _run_ipca(
-            path, output_path, n_components, batch_size, embedding_col,
+            path,
+            output_path,
+            n_components,
+            batch_size,
+            embedding_col,
             whiten=True,
         )
     msg = f"Unknown method: {method}"

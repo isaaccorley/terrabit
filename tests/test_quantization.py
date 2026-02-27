@@ -1,10 +1,11 @@
 import numpy as np
 
+from terrabit._typing import NDArrayF32
 from terrabit.quantization import (
     dequantize,
     dequantize_binary,
-    dequantize_fp8,
     dequantize_float16,
+    dequantize_fp8,
     dequantize_int2,
     dequantize_int3,
     dequantize_int4,
@@ -12,8 +13,8 @@ from terrabit.quantization import (
     hamming_distance,
     quantize,
     quantize_binary,
-    quantize_fp8,
     quantize_float16,
+    quantize_fp8,
     quantize_int2,
     quantize_int3,
     quantize_int4,
@@ -21,7 +22,7 @@ from terrabit.quantization import (
 )
 
 
-def _rand_embeddings(n=100, d=64, seed=42):
+def _rand_embeddings(n: int = 100, d: int = 64, seed: int = 42) -> NDArrayF32:
     rng = np.random.default_rng(seed)
     return rng.standard_normal((n, d)).astype(np.float32)
 

@@ -29,7 +29,7 @@ def _target_dims_from_id(estimated_id: float) -> tuple[int, ...]:
     return tuple(sorted({d for d in dims if d <= MAX_EMBEDDING_DIM}))
 
 
-def run_estimate_id(  # noqa: PLR0913
+def run_estimate_id(
     path: str,
     *,
     n_subsample: int = 15_000,
@@ -51,7 +51,7 @@ def run_estimate_id(  # noqa: PLR0913
     return estimate_intrinsic_dimension(x, seed=seed)
 
 
-def run_compress(  # noqa: PLR0913
+def run_compress(
     path: str,
     output_base: str,
     method: CompressionMethod,
@@ -98,7 +98,7 @@ def run_post_compression_id(
     return estimate_intrinsic_dimension(x, n_stability_runs=1, seed=seed)
 
 
-def run_full_pipeline(  # noqa: PLR0913
+def run_full_pipeline(
     path: str,
     output_base: str,
     *,
