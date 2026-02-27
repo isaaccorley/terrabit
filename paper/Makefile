@@ -9,7 +9,7 @@ install:
 	tlmgr install latexmk collection-fontsrecommended booktabs natbib microtype hyperref environ trimspaces xcolor graphicx amsmath amsfonts units
 
 check:
-	tex-fmt --check $(TEXFILES)
+	tex-fmt --check --nowrap $(TEXFILES)
 
 build: $(MAIN).pdf
 

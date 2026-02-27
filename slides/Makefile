@@ -8,7 +8,7 @@ install:
 	tlmgr install latexmk beamer pgf booktabs hyperref amsmath amsfonts xcolor tikz
 
 check:
-	tex-fmt --check $(TEXFILES)
+	tex-fmt --check --nowrap $(TEXFILES)
 
 build: $(MAIN).pdf
 
