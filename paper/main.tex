@@ -18,6 +18,7 @@
 \sisetup{group-separator = {,}, group-minimum-digits = 4}
 \usepackage{subcaption}
 \usepackage{twemojis}
+\usepackage{afterpage}
 
 \newcommand{\method}{\textbf{TerraBit}}
 
@@ -62,6 +63,17 @@ Our contributions are:
 (2)~a systematic post-hoc quantization study (\texttt{float16}, \texttt{fp8}, \texttt{int8}, \texttt{int4}, \texttt{int3}, \texttt{int2}, \texttt{binary}) on 49.8M real geospatial embeddings;
 (3)~a schema-preserving parallel Parquet transformation pipeline that processes the full corpus in 45\,min at \num{18359}\,rows/s; and
 (4)~a retrieval benchmark showing $>$\num{1300}\,QPS on GPU with recall preserved across hardware.
+
+\afterpage{%
+  \begin{figure}[!t]
+    \centering
+    \includegraphics[width=\linewidth]{figures/storage.pdf}
+    \caption{\textbf{Storage footprint per quantization method.}
+      Original \texttt{float32} corpus occupies \textit{183\,GiB}.
+    \texttt{Binary} reduces this to \textit{11\,GiB} ($16.5\times$); \texttt{int4} to \textit{29\,GiB} ($6.3\times$).}
+    \label{fig:storage}
+  \end{figure}
+}
 
 \section{Related Work}
 \label{sec:related}
@@ -232,15 +244,6 @@ Binary Hamming search runs at \num{801}\,QPS on CPU and \num{164}\,QPS on GPU; t
     Binary Hamming search is fastest on CPU (\num{801}\,QPS) due to native bitwise ops.
   Recall (purple diamonds, right axis) tracks quantization fidelity independently of hardware.}
   \label{fig:search}
-\end{figure}
-
-\begin{figure}[!t]
-  \centering
-  \includegraphics[width=\linewidth]{figures/storage.pdf}
-  \caption{\textbf{Storage footprint per quantization method.}
-    Original \texttt{float32} corpus occupies \textit{183\,GiB}.
-  \texttt{Binary} reduces this to \textit{11\,GiB} ($16.5\times$); \texttt{int4} to \textit{29\,GiB} ($6.3\times$).}
-  \label{fig:storage}
 \end{figure}
 
 \paragraph{Limitations.}
