@@ -91,7 +91,7 @@ metrics = {r["method"]: r for r in full["results"]}
 # =====================================================================
 # Figure 1: Compression-Quality Pareto (HERO FIGURE)
 # =====================================================================
-fig, axes = plt.subplots(1, 2, figsize=(5.5, 3.0), sharey=True)
+fig, ax = plt.subplots(figsize=(5.5, 3.0))
 
 # Per-method label offsets (dx, dy) in offset-points to avoid overlap
 LABEL_OFFSETS = {
@@ -104,58 +104,64 @@ LABEL_OFFSETS = {
     "binary": (-10, 5),  # left-above, keep inside plot
 }
 
-for ax, metric_key, title in [
-    (axes[0], "knn_recall_10_cosine_sampled", "kNN Recall@10 (Cosine)"),
-    (axes[1], "knn_recall_10_euclidean_sampled", "kNN Recall@10 (Euclidean)"),
-]:
-    xs, ys, labels = [], [], []
-    for m in METHOD_ORDER:
-        xs.append(COMPRESSION[m])
-        ys.append(metrics[m][metric_key])
-        labels.append(m)
+xs = [COMPRESSION[m] for m in METHOD_ORDER]
+ys_cos = [metrics[m]["knn_recall_10_cosine_sampled"] for m in METHOD_ORDER]
+ys_euc = [metrics[m]["knn_recall_10_euclidean_sampled"] for m in METHOD_ORDER]
 
-    ax.plot(xs, ys, "o-", color=LINE_C, zorder=2, markersize=5, linewidth=1.0)
-    for x, y, m in zip(xs, ys, labels, strict=False):
-        ax.scatter(
-            [x],
-            [y],
-            color=COLORS[m],
-            s=50,
-            zorder=3,
-            edgecolors="white",
-            linewidths=0.5,
-            alpha=0.95,
-        )
-        dx, dy = LABEL_OFFSETS[m]
-        ax.annotate(
-            m,
-            (x, y),
-            textcoords="offset points",
-            xytext=(dx, dy),
-            fontsize=6.5,
-            ha="center",
-            color=COLORS[m],
-            fontweight="bold",
-        )
+ax.plot(xs, ys_cos, "o-", color="#2d1157", label="Cosine", zorder=2, markersize=5, linewidth=1.1)
+ax.plot(
+    xs,
+    ys_euc,
+    "s--",
+    color="#0097a7",
+    label="Euclidean",
+    zorder=2,
+    markersize=4.5,
+    linewidth=1.1,
+)
 
-    # Mark the int8 baseline
-    ax.axhline(
-        y=metrics["int8"][metric_key],
-        color=ACCENT,
-        linestyle="--",
-        alpha=0.35,
-        linewidth=0.8,
-        zorder=1,
+# Annotate methods once at the midpoint between both curves.
+for m, x, yc, ye in zip(METHOD_ORDER, xs, ys_cos, ys_euc, strict=False):
+    y_mid = (yc + ye) / 2
+    dx, dy = LABEL_OFFSETS[m]
+    ax.annotate(
+        m,
+        (x, y_mid),
+        textcoords="offset points",
+        xytext=(dx, dy),
+        fontsize=6.5,
+        ha="center",
+        color=COLORS[m],
+        fontweight="bold",
     )
 
-    ax.set_xlabel("Compression Ratio (x)")
-    ax.set_title(title, fontsize=9)
-    ax.set_xlim(-0.5, 18)
-    ax.set_ylim(0.45, 1.10)
-    ax.set_yticks([0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-    ax.grid(True, alpha=0.2, linewidth=0.4)
+# Int8 references for both metrics.
+ax.axhline(
+    y=metrics["int8"]["knn_recall_10_cosine_sampled"],
+    color="#2d1157",
+    linestyle=":",
+    alpha=0.35,
+    linewidth=0.8,
+    zorder=1,
+)
+ax.axhline(
+    y=metrics["int8"]["knn_recall_10_euclidean_sampled"],
+    color="#0097a7",
+    linestyle=":",
+    alpha=0.35,
+    linewidth=0.8,
+    zorder=1,
+)
 
-axes[0].set_ylabel("Recall@10")
+ax.set_xlabel("Compression Ratio (x)")
+ax.set_ylabel("Recall@10")
+ax.set_title("kNN Recall@10: Cosine and Euclidean", fontsize=9)
+ax.set_xlim(-0.5, 18)
+ax.set_ylim(0.45, 1.10)
+ax.set_yticks([0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+ax.grid(True, alpha=0.2, linewidth=0.4)
+ax.legend(fontsize=8, framealpha=0.8, edgecolor="none")
+
 plt.tight_layout()
 fig.savefig(FIG_DIR / "pareto.pdf")
 plt.close()

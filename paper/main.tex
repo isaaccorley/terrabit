@@ -142,21 +142,38 @@ ID estimation on a \num{10000}-sample subset yields MLE $\hat{d} = 17.0$, TwoNN 
 
 \begin{figure}[t]
   \centering
-  \begin{subfigure}[t]{0.38\linewidth}
-    \includegraphics[width=\linewidth]{figures/intrinsic_dim.pdf}
-    \caption{ID estimates. All estimators converge to $\hat{d} \approx 13$--$17$, far below $d{=}1024$.}
-    \label{fig:id}
+  \includegraphics[width=0.56\linewidth]{figures/intrinsic_dim.pdf}
+  \caption{\textbf{Intrinsic-dimension diagnostics.}
+  MLE, TwoNN, and LPCA estimates cluster at $\hat{d} \approx 13$--$17$, far below ambient $d{=}1024$, supporting aggressive post-hoc quantization.}
+  \label{fig:id}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}[t]{0.58\linewidth}
+    \includegraphics[width=\linewidth]{figures/pareto.pdf}
+    \caption{kNN recall@10 (cosine and Euclidean) vs. compression ratio.}
+    \label{fig:pareto-2a}
   \end{subfigure}
   \hfill
-  \begin{subfigure}[t]{0.58\linewidth}
+  \begin{subfigure}[t]{0.40\linewidth}
     \includegraphics[width=\linewidth]{figures/knn_recall_k.pdf}
-    \caption{kNN recall (cosine) across $k \in \{10,25,50\}$. Recall degrades gracefully as bit-width decreases.}
+    \caption{kNN recall (cosine) across $k \in \{10,25,50\}$.}
     \label{fig:knn-k}
   \end{subfigure}
-  \caption{\textbf{Intrinsic dimension and neighborhood preservation.}
-    (a) The embedding manifold has $\hat{d} \approx 13$--$17$, motivating aggressive quantization of redundant dimensions.
-  (b) Neighborhood preservation declines smoothly from \texttt{int8} to \texttt{binary}, enabling application-specific operating-point selection.}
-  \label{fig:id-knn}
+  \caption{\textbf{Neighborhood-preservation behavior across operating points.}
+    (a) Cosine and Euclidean recall@10 follow closely aligned trade-offs across bit-widths.
+  (b) Recall declines smoothly as $k$ increases and precision decreases, enabling application-specific operating-point selection.}
+  \label{fig:pareto-knn}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/storage.pdf}
+  \caption{\textbf{Storage footprint per quantization method.}
+    Original \texttt{float32} corpus occupies \textit{183\,GiB}.
+  \texttt{Binary} reduces this to \textit{11\,GiB} ($16.5\times$); \texttt{int4} to \textit{29\,GiB} ($6.3\times$).}
+  \label{fig:storage}
 \end{figure}
 
 \paragraph{Quality--compression frontier.}
@@ -192,15 +209,6 @@ Table~\ref{tab:quality} summarizes quality across all methods.
 Figure~\ref{fig:storage} shows the per-method storage footprint.
 \texttt{Binary} reduces the \textit{183\,GiB} corpus to \textit{11\,GiB}; \texttt{int4} to \textit{29\,GiB}.
 The full pipeline (all 7 methods, 8 workers) processes the entire corpus in \SI{45.2}{\minute} at \num{18359}\,rows/s and \SI{107}{\mebi\byte/\second} output throughput.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\linewidth]{figures/storage.pdf}
-  \caption{\textbf{Storage footprint per quantization method.}
-    Original \texttt{float32} corpus occupies \textit{183\,GiB}.
-  \texttt{Binary} reduces this to \textit{11\,GiB} ($16.5\times$); \texttt{int4} to \textit{29\,GiB} ($6.3\times$).}
-  \label{fig:storage}
-\end{figure}
 
 \paragraph{Discussion.}
 
