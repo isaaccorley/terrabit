@@ -53,19 +53,9 @@ TESSERA applies quantization-aware training (QAT) to a learned 128D bottleneck a
 Both treat \texttt{int8} as the practical floor.
 \method{} asks: \textit{how far below \texttt{int8} can we push post-hoc quantization while preserving nearest-neighbor structure?}
 
-Figure~\ref{fig:pareto} previews the answer.
 We sweep seven bit-widths from \texttt{float16} to 1-bit \texttt{binary} on a real 49.8M-embedding corpus and measure neighborhood preservation with label-free metrics.
+Figure~\ref{fig:id-knn} shows graceful degradation in local-neighborhood preservation, and Table~\ref{tab:quality} quantifies recall@10 trade-offs for cosine and Euclidean distance.
 The frontier is smooth: \texttt{int4} retains 91\% kNN recall at $6.3\times$ compression, while \texttt{binary} reaches $16.5\times$ with recall sufficient for shortlist retrieval~\citep{wang2018binary}.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\linewidth]{figures/pareto.pdf}
-  \caption{\textbf{Quality--compression Pareto frontier.}
-    kNN recall@10 (cosine and Euclidean) vs.\ compression ratio on \num{49785116} geospatial embeddings.
-    \texttt{Int8} (dashed line) is the current practical baseline~\citep{brown2025alphaearth,feng2025tessera}.
-  \texttt{Int4} preserves 91\% recall at $6.3\times$; \texttt{binary} reaches $16.5\times$ with useful shortlist-level recall.}
-  \label{fig:pareto}
-\end{figure}
 
 Our contributions are:
 (1)~an intrinsic-dimension-guided evaluation framework combining ID diagnostics~\citep{levina2004id,facco2017twonn} with label-free retrieval fidelity metrics;
@@ -142,46 +132,24 @@ ID estimation on a \num{10000}-sample subset yields MLE $\hat{d} = 17.0$, TwoNN 
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.56\linewidth]{figures/intrinsic_dim.pdf}
-  \caption{\textbf{Intrinsic-dimension diagnostics.}
-  MLE, TwoNN, and LPCA estimates cluster at $\hat{d} \approx 13$--$17$, far below ambient $d{=}1024$, supporting aggressive post-hoc quantization.}
-  \label{fig:id}
+  \begin{minipage}{0.9\linewidth}
+    \begin{subfigure}[t]{0.42\linewidth}
+      \includegraphics[width=\linewidth]{figures/intrinsic_dim.pdf}
+      \caption{ID estimates. MLE, TwoNN, and LPCA cluster at $\hat{d} \approx 13$--$17$, far below $d{=}1024$.}
+      \label{fig:id}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.54\linewidth}
+      \includegraphics[width=\linewidth]{figures/knn_recall_k.pdf}
+      \caption{kNN recall (cosine) across $k \in \{10,25,50\}$.
+      Recall declines smoothly as bit-width decreases.}
+      \label{fig:knn-k}
+    \end{subfigure}
+  \end{minipage}
+  \caption{\textbf{Intrinsic dimension and neighborhood preservation.}
+  Low intrinsic dimension motivates aggressive quantization, and recall degrades gracefully across operating points.}
+  \label{fig:id-knn}
 \end{figure}
-
-\begin{figure}[t]
-  \centering
-  \begin{subfigure}[t]{0.58\linewidth}
-    \includegraphics[width=\linewidth]{figures/pareto.pdf}
-    \caption{kNN recall@10 (cosine and Euclidean) vs. compression ratio.}
-    \label{fig:pareto-2a}
-  \end{subfigure}
-  \hfill
-  \begin{subfigure}[t]{0.40\linewidth}
-    \includegraphics[width=\linewidth]{figures/knn_recall_k.pdf}
-    \caption{kNN recall (cosine) across $k \in \{10,25,50\}$.}
-    \label{fig:knn-k}
-  \end{subfigure}
-  \caption{\textbf{Neighborhood-preservation behavior across operating points.}
-    (a) Cosine and Euclidean recall@10 follow closely aligned trade-offs across bit-widths.
-  (b) Recall declines smoothly as $k$ increases and precision decreases, enabling application-specific operating-point selection.}
-  \label{fig:pareto-knn}
-\end{figure}
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\linewidth]{figures/storage.pdf}
-  \caption{\textbf{Storage footprint per quantization method.}
-    Original \texttt{float32} corpus occupies \textit{183\,GiB}.
-  \texttt{Binary} reduces this to \textit{11\,GiB} ($16.5\times$); \texttt{int4} to \textit{29\,GiB} ($6.3\times$).}
-  \label{fig:storage}
-\end{figure}
-
-\paragraph{Quality--compression frontier.}
-
-Table~\ref{tab:quality} summarizes quality across all methods.
-\texttt{Int8} yields near-lossless retrieval (recall@10 = 0.99) at $3.5\times$ compression, matching the precision used by AlphaEarth and TESSERA~\citep{brown2025alphaearth,feng2025tessera}.
-\texttt{Int4} provides a strong balanced operating point: $6.3\times$ compression with 91\% kNN recall.
-\texttt{Binary} achieves the highest compression ($16.5\times$) with recall@10 of 0.65---suitable as a coarse first-pass filter before re-ranking with higher-fidelity representations~\citep{wang2018binary,jegou2011pq}.
 
 \begin{table}[t]
   \centering
@@ -203,6 +171,13 @@ Table~\ref{tab:quality} summarizes quality across all methods.
     \bottomrule
   \end{tabular}
 \end{table}
+
+\paragraph{Quality--compression frontier.}
+
+Table~\ref{tab:quality} summarizes quality across all methods.
+\texttt{Int8} yields near-lossless retrieval (recall@10 = 0.99) at $3.5\times$ compression, matching the precision used by AlphaEarth and TESSERA~\citep{brown2025alphaearth,feng2025tessera}.
+\texttt{Int4} provides a strong balanced operating point: $6.3\times$ compression with 91\% kNN recall.
+\texttt{Binary} achieves the highest compression ($16.5\times$) with recall@10 of 0.65---suitable as a coarse first-pass filter before re-ranking with higher-fidelity representations~\citep{wang2018binary,jegou2011pq}.
 
 \paragraph{Storage and throughput.}
 
@@ -235,7 +210,7 @@ Binary Hamming search runs at \num{801}\,QPS on CPU and \num{164}\,QPS on GPU; t
   \label{tab:search}
   \begin{tabular}{lrrrr}
     \toprule
-    Method & CPU QPS & GPU QPS & Speedup & Recall@10 \\
+    Method & CPU QPS & GPU QPS & Speedup & R@10 \\
     \midrule
     \texttt{float16} & 59 & \textbf{1322} & $22.4\times$ & 1.00 \\
     \texttt{fp8}     & 59 & \textbf{1361} & $23.1\times$ & 0.95 \\
@@ -249,7 +224,7 @@ Binary Hamming search runs at \num{801}\,QPS on CPU and \num{164}\,QPS on GPU; t
   \end{tabular}
 \end{table}
 
-\begin{figure}[t]
+\begin{figure}[!b]
   \centering
   \includegraphics[width=\linewidth]{figures/search_benchmark.pdf}
   \caption{\textbf{Search throughput vs.\ recall} on 1M embeddings.
@@ -257,6 +232,15 @@ Binary Hamming search runs at \num{801}\,QPS on CPU and \num{164}\,QPS on GPU; t
     Binary Hamming search is fastest on CPU (\num{801}\,QPS) due to native bitwise ops.
   Recall (purple diamonds, right axis) tracks quantization fidelity independently of hardware.}
   \label{fig:search}
+\end{figure}
+
+\begin{figure}[!t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/storage.pdf}
+  \caption{\textbf{Storage footprint per quantization method.}
+    Original \texttt{float32} corpus occupies \textit{183\,GiB}.
+  \texttt{Binary} reduces this to \textit{11\,GiB} ($16.5\times$); \texttt{int4} to \textit{29\,GiB} ($6.3\times$).}
+  \label{fig:storage}
 \end{figure}
 
 \paragraph{Limitations.}
