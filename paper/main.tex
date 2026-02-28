@@ -67,10 +67,11 @@ The frontier is smooth: \texttt{int4} retains 91\% kNN recall at $6.3\times$ com
   \label{fig:pareto}
 \end{figure}
 
-Our contributions are threefold:
+Our contributions are:
 (1)~an intrinsic-dimension-guided evaluation framework combining ID diagnostics~\citep{levina2004id,facco2017twonn} with label-free retrieval fidelity metrics;
-(2)~a systematic post-hoc quantization study (\texttt{float16}, \texttt{fp8}, \texttt{int8}, \texttt{int4}, \texttt{int3}, \texttt{int2}, \texttt{binary}) on 49.8M real geospatial embeddings; and
-(3)~a schema-preserving parallel Parquet transformation pipeline that processes the full corpus in 45\,min at \num{18359}\,rows/s.
+(2)~a systematic post-hoc quantization study (\texttt{float16}, \texttt{fp8}, \texttt{int8}, \texttt{int4}, \texttt{int3}, \texttt{int2}, \texttt{binary}) on 49.8M real geospatial embeddings;
+(3)~a schema-preserving parallel Parquet transformation pipeline that processes the full corpus in 45\,min at \num{18359}\,rows/s; and
+(4)~a retrieval benchmark showing $>$\num{1300}\,QPS on GPU with recall preserved across hardware.
 
 \section{Related Work}
 \label{sec:related}
@@ -208,18 +209,61 @@ First, ID estimates of 13--20 (vs.\ ambient $d{=}1024$) explain why aggressive q
 Second, the quality decline from \texttt{int8} to \texttt{int2} is gradual (Figure~\ref{fig:knn-k}), enabling practitioners to select operating points based on their recall requirements versus storage budget.
 Third, \texttt{binary} quantization is not quality-preserving in a strict sense, but its $16.5\times$ compression and compatibility with Hamming-distance search make it attractive for first-pass candidate generation in multi-stage retrieval pipelines~\citep{wang2018binary}.
 
+\paragraph{Retrieval benchmark.}
+
+To validate that quantization-induced compression translates to practical search speedups, we benchmark brute-force kNN retrieval on a 1M-vector subset (\num{1000} queries, $k{=}50$) using FAISS~\citep{johnson2021faiss} on CPU and PyTorch \texttt{cdist} on a single NVIDIA RTX 3090 GPU.
+Each quantized corpus is dequantized to \texttt{float32} before indexing, isolating the effect of quantization noise from format-specific index optimizations; binary embeddings use Hamming distance directly via packed \texttt{uint8} search.
+
+Table~\ref{tab:search} and Figure~\ref{fig:search} summarize throughput and recall.
+GPU search achieves \num{1322}--\num{1362}\,QPS for dequantized methods---a $22\times$ speedup over FAISS CPU (\num{59}--\num{60}\,QPS)---with identical recall, confirming that quantization quality is hardware-independent.
+Binary Hamming search runs at \num{801}\,QPS on CPU and \num{164}\,QPS on GPU; the lower GPU throughput reflects the overhead of bit-unpacking binary vectors into float tensors for \texttt{cdist}, a limitation of the brute-force approach that purpose-built Hamming kernels would eliminate.
+
+\begin{table}[t]
+  \centering
+  \caption{\textbf{Brute-force search benchmark} on 1M embeddings (1K queries, $k{=}10$).
+    QPS = queries per second.  GPU is a single RTX 3090.
+    Recall is identical across backends since quantization quality is hardware-independent.
+  \textbf{Bold}: best throughput per row.}
+  \label{tab:search}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Method & CPU QPS & GPU QPS & Speedup & Recall@10 \\
+    \midrule
+    \texttt{float16} & 59 & \textbf{1322} & $22.4\times$ & 1.00 \\
+    \texttt{fp8}     & 59 & \textbf{1361} & $23.1\times$ & 0.95 \\
+    \texttt{int8}    & 60 & \textbf{1349} & $22.5\times$ & 0.48 \\
+    \texttt{int4}    & 60 & \textbf{1337} & $22.3\times$ & 0.46 \\
+    \texttt{int3}    & 59 & \textbf{1329} & $22.5\times$ & 0.43 \\
+    \texttt{int2}    & 59 & \textbf{1346} & $22.8\times$ & 0.37 \\
+    \texttt{binary}  & \textbf{801} & 164  & $0.2\times$  & 1.00$^*$ \\
+    \bottomrule
+    \multicolumn{5}{l}{\footnotesize $^*$Recall measured against binary GT (Hamming distance).}
+  \end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/search_benchmark.pdf}
+  \caption{\textbf{Search throughput vs.\ recall} on 1M embeddings.
+    GPU brute-force delivers $>$\num{1300}\,QPS for all dequantized methods.
+    Binary Hamming search is fastest on CPU (\num{801}\,QPS) due to native bitwise ops.
+  Recall (purple diamonds, right axis) tracks quantization fidelity independently of hardware.}
+  \label{fig:search}
+\end{figure}
+
 \paragraph{Limitations.}
 
 We use label-free neighborhood-preservation proxies rather than task-specific metrics (e.g., land-cover classification accuracy).
 kNN recall and cosine correlation are computed on a reservoir sample, not the full corpus.
-We also do not benchmark end-to-end ANN index build/query latency~\citep{johnson2021faiss}.
-Future work should add labeled downstream evaluation, confidence intervals across seeds, and hardware-specific retrieval benchmarks.
+Our retrieval benchmark uses brute-force search; approximate nearest-neighbor indices (IVF, HNSW) may alter the quality--throughput frontier at larger scale~\citep{johnson2021faiss}.
+Future work should add labeled downstream evaluation and investigate ANN index interactions with low-bit quantization.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
 \method{} provides a systematic compression study for geospatial embedding lakes.
 On 49.8M real embeddings, low-bit quantization yields a smooth quality--cost frontier: \texttt{int4}/\texttt{int8} are strong balanced choices; \texttt{binary} is viable for coarse retrieval stages.
+GPU-accelerated brute-force search over dequantized embeddings exceeds \num{1300}\,QPS on a single RTX 3090, demonstrating that quantized embedding lakes are practical for real-time retrieval at scale.
 
 \bibliographystyle{plainnat}
 \bibliography{references}

@@ -156,8 +156,12 @@ def _resolve_methods(quantized_root: Path, methods_arg: str) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--original-root", required=True, help="Path to original embeddings parquet root")
-    parser.add_argument("--quantized-root", required=True, help="Path to quantized method directories")
+    parser.add_argument(
+        "--original-root", required=True, help="Path to original embeddings parquet root"
+    )
+    parser.add_argument(
+        "--quantized-root", required=True, help="Path to quantized method directories"
+    )
     parser.add_argument("--output", "-o", default="results/report_metrics_full.json")
     parser.add_argument(
         "--methods",
@@ -190,9 +194,7 @@ def main() -> None:
 
     invalid_metrics = sorted(set(parsed_knn) - set(DEFAULT_KNN_METRICS))
     if invalid_metrics:
-        raise ValueError(
-            f"Unknown kNN metrics: {invalid_metrics}. Allowed: {DEFAULT_KNN_METRICS}"
-        )
+        raise ValueError(f"Unknown kNN metrics: {invalid_metrics}. Allowed: {DEFAULT_KNN_METRICS}")
     if not ks:
         raise ValueError("At least one k is required")
 

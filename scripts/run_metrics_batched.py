@@ -19,8 +19,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import os
 import json
+import os
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -245,9 +245,7 @@ def _sample_reservoir(
                 n_seen += 1
 
         if idx % progress_every == 0 or idx == total_files:
-            console.print(
-                f"  {method}: sampling {idx}/{total_files} files  seen_rows={n_seen}"
-            )
+            console.print(f"  {method}: sampling {idx}/{total_files} files  seen_rows={n_seen}")
 
     if sample_orig is None or sample_recon is None:
         raise ValueError(f"No data found for method {method}")
@@ -271,11 +269,11 @@ def _evaluate_method_streaming(
     progress_every: int,
     limit_files: int,
 ) -> dict[str, Any]:
-    pairs = _file_pairs(original_root=original_root, method_root=method_root, limit_files=limit_files)
-    worker_count = _resolve_jobs(requested_jobs=jobs, n_files=len(pairs))
-    console.print(
-        f"  {method}: files={len(pairs)} batch_size={batch_size} workers={worker_count}"
+    pairs = _file_pairs(
+        original_root=original_root, method_root=method_root, limit_files=limit_files
     )
+    worker_count = _resolve_jobs(requested_jobs=jobs, n_files=len(pairs))
+    console.print(f"  {method}: files={len(pairs)} batch_size={batch_size} workers={worker_count}")
 
     sse = 0.0
     cos_sum = 0.0
@@ -367,8 +365,12 @@ def _evaluate_method_streaming(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--original-root", required=True, help="Path to original embeddings parquet root")
-    parser.add_argument("--quantized-root", required=True, help="Path to quantized method directories")
+    parser.add_argument(
+        "--original-root", required=True, help="Path to original embeddings parquet root"
+    )
+    parser.add_argument(
+        "--quantized-root", required=True, help="Path to quantized method directories"
+    )
     parser.add_argument("--output", "-o", default="results/report_metrics_batched.json")
     parser.add_argument(
         "--methods",
@@ -391,9 +393,13 @@ def main() -> None:
     parser.add_argument("--reservoir-size", type=int, default=20_000)
     parser.add_argument("--n-sample-pairs", type=int, default=50_000)
     parser.add_argument("--batch-size", type=int, default=8192)
-    parser.add_argument("--jobs", type=int, default=0, help="Worker processes for exact pass (0=auto)")
+    parser.add_argument(
+        "--jobs", type=int, default=0, help="Worker processes for exact pass (0=auto)"
+    )
     parser.add_argument("--progress-every", type=int, default=25)
-    parser.add_argument("--limit-files", type=int, default=0, help="If >0, evaluate first N files only")
+    parser.add_argument(
+        "--limit-files", type=int, default=0, help="If >0, evaluate first N files only"
+    )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -405,9 +411,7 @@ def main() -> None:
 
     invalid_metrics = sorted(set(parsed_knn) - set(DEFAULT_KNN_METRICS))
     if invalid_metrics:
-        raise ValueError(
-            f"Unknown kNN metrics: {invalid_metrics}. Allowed: {DEFAULT_KNN_METRICS}"
-        )
+        raise ValueError(f"Unknown kNN metrics: {invalid_metrics}. Allowed: {DEFAULT_KNN_METRICS}")
     if not ks:
         raise ValueError("At least one k is required")
 
