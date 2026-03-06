@@ -50,7 +50,19 @@ PREPROCESS_CONFIGS: dict[str, dict[str, bool]] = {
     "l2_normed": {"l2_norm": True, "center": False},
     "centered_l2": {"l2_norm": True, "center": True},
 }
-QUANTIZATION_METHODS = ("float16", "fp8", "int8", "int4", "int3", "int2", "binary")
+QUANTIZATION_METHODS = (
+    "float16",
+    "fp8",
+    "int8",
+    "int4",
+    "int3",
+    "int2",
+    "binary",
+    "turbo8",
+    "turbo4",
+    "turbo3",
+    "turbo2",
+)
 KNN_RECALL_KS = (10, 25, 50)
 KNN_RECALL_METRICS = ("cosine", "euclidean")
 

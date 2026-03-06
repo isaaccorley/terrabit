@@ -47,13 +47,15 @@ def knn_recall_multi(
 
     out: dict[int, float] = {}
     for k in sorted(set(ks)):
-        idx_orig = idx_orig_full[:, :k]
-        idx_comp = idx_comp_full[:, :k]
-        recalls = []
-        for i in range(len(x_orig)):
-            overlap = len(set(idx_orig[i]) & set(idx_comp[i]))
-            recalls.append(overlap / k)
-        out[k] = float(np.mean(recalls))
+        idx_orig = idx_orig_full[:, :k]  # (n, k)
+        idx_comp = idx_comp_full[:, :k]  # (n, k)
+        # vectorized: for each row count how many comp neighbours appear in orig neighbours
+        # idx_orig[:, :, None] == idx_comp[:, None, :] -> (n, k, k) bool; any match per orig col
+        overlap = np.sum(
+            (idx_orig[:, :, None] == idx_comp[:, None, :]).any(axis=2),
+            axis=1,
+        )  # (n,)
+        out[k] = float(np.mean(overlap / k))
     return out
 
 

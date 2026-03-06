@@ -22,6 +22,9 @@ with open(RESULTS_DIR / "report_metrics_batched_full.json") as f:
 with open(RESULTS_DIR / "report_quant_10k.json") as f:
     quant10k = json.load(f)
 
+with open(RESULTS_DIR / "report_metrics_batched_turbo_full.json") as f:
+    turbo_full = json.load(f)
+
 # ---------- retro-purple / synthwave data palette on white ----------
 ACCENT = "#7c4dff"  # baseline accent (vivid purple)
 
@@ -355,7 +358,7 @@ if faiss_path.exists() and gpu_path.exists():
     gpu_qps = [_gpu_exp[GPU_KEY[m]]["qps"] for m in SEARCH_METHODS]
     recall10 = [_faiss_exp[FAISS_KEY[m]]["recall"]["recall@10"] for m in SEARCH_METHODS]
 
-    fig, ax1 = plt.subplots(figsize=(5.5, 2.8))
+    fig, ax1 = plt.subplots(figsize=(5.5, 3.6))
     x = np.arange(len(SEARCH_METHODS))
     w = 0.32
 
@@ -408,15 +411,15 @@ if faiss_path.exists() and gpu_path.exists():
     ax2.set_ylim(0.3, 1.08)
     ax2.tick_params(axis="y", labelcolor="#0097a7")
 
-    # Combined legend
+    # Combined legend — bottom right, away from the tall bars
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(
         lines1 + lines2,
         labels1 + labels2,
         fontsize=7,
-        loc="upper left",
-        framealpha=0.8,
+        loc="lower right",
+        framealpha=0.85,
         edgecolor="none",
     )
 
@@ -430,6 +433,97 @@ if faiss_path.exists() and gpu_path.exists():
     print("Saved search_benchmark.pdf")
 else:
     print("Skipping search_benchmark.pdf (results not found)")
+
+
+# =====================================================================
+# Figure 6: TurboQuant vs. standard intb — bit-width saturation
+# =====================================================================
+# Build lookup for turbo results
+turbo_metrics = {r["method"]: r for r in turbo_full["results"]}
+
+# Shared bit-widths where both families exist
+TURBO_BITS = [2, 3, 4, 8]
+int_methods = [f"int{b}" for b in TURBO_BITS]
+turbo_methods = [f"turbo{b}" for b in TURBO_BITS]
+
+int_recall_cos = [metrics[m]["knn_recall_10_cosine_sampled"] for m in int_methods]
+turbo_recall_cos = [turbo_metrics[m]["knn_recall_10_cosine_sampled"] for m in turbo_methods]
+
+INT_COLOR = "#2d1157"
+TURBO_COLOR = "#ff1867"
+FILL_ALPHA = 0.10
+
+x = np.array(TURBO_BITS)
+
+fig, ax = plt.subplots(figsize=(4.0, 2.8))
+
+ax.fill_between(x, turbo_recall_cos, int_recall_cos, color=INT_COLOR, alpha=FILL_ALPHA, zorder=1)
+ax.plot(
+    x,
+    int_recall_cos,
+    "o-",
+    color=INT_COLOR,
+    linewidth=1.6,
+    markersize=5.5,
+    label="int$b$",
+    zorder=3,
+)
+ax.plot(
+    x,
+    turbo_recall_cos,
+    "s--",
+    color=TURBO_COLOR,
+    linewidth=1.6,
+    markersize=5.5,
+    label="turbo$b$",
+    zorder=3,
+)
+
+for xi, iv, tv in zip(x, int_recall_cos, turbo_recall_cos, strict=False):
+    ax.annotate(
+        f"{iv:.2f}",
+        (xi, iv),
+        textcoords="offset points",
+        xytext=(0, 6),
+        fontsize=6.5,
+        ha="center",
+        color=INT_COLOR,
+        fontweight="bold",
+    )
+    ax.annotate(
+        f"{tv:.2f}",
+        (xi, tv),
+        textcoords="offset points",
+        xytext=(0, -11),
+        fontsize=6.5,
+        ha="center",
+        color=TURBO_COLOR,
+        fontweight="bold",
+    )
+
+ax.annotate(
+    "recall saturates\n(rotation is bottleneck)",
+    xy=(4, turbo_recall_cos[2]),
+    xytext=(5.8, 0.67),
+    fontsize=6.5,
+    color=TURBO_COLOR,
+    arrowprops={"arrowstyle": "->", "color": TURBO_COLOR, "lw": 0.9},
+    ha="center",
+)
+
+ax.set_xlabel("Bit-width")
+ax.set_ylabel("kNN Recall@10 (Cosine)")
+ax.set_xticks(TURBO_BITS)
+ax.set_xticklabels([f"{b}b" for b in TURBO_BITS])
+ax.set_ylim(0.42, 1.06)
+ax.set_yticks([0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+ax.grid(True, alpha=0.2, linewidth=0.4)
+ax.legend(fontsize=8, framealpha=0.85, edgecolor="none")
+
+plt.tight_layout()
+fig.savefig(FIG_DIR / "turbo_vs_int.pdf")
+plt.close()
+print("Saved turbo_vs_int.pdf")
 
 
 print("\nAll figures generated.")

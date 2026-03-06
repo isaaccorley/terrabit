@@ -2,6 +2,7 @@ import numpy as np
 
 from terrabit._typing import NDArrayF32
 from terrabit.quantization import (
+    _random_orthogonal_matrix,
     dequantize,
     dequantize_binary,
     dequantize_float16,
@@ -10,6 +11,7 @@ from terrabit.quantization import (
     dequantize_int3,
     dequantize_int4,
     dequantize_int8,
+    dequantize_turbo,
     hamming_distance,
     quantize,
     quantize_binary,
@@ -19,6 +21,7 @@ from terrabit.quantization import (
     quantize_int3,
     quantize_int4,
     quantize_int8,
+    quantize_turbo,
 )
 
 
@@ -145,10 +148,71 @@ class TestBinary:
         assert d[0, 0] == 16  # all bits flipped
 
 
+class TestTurbo:
+    def test_rotation_matrix_orthogonal(self):
+        r = _random_orthogonal_matrix(64, seed=0)
+        np.testing.assert_allclose(r @ r.T, np.eye(64), atol=1e-5)
+        np.testing.assert_allclose(r.T @ r, np.eye(64), atol=1e-5)
+
+    def test_rotation_matrix_deterministic(self):
+        r1 = _random_orthogonal_matrix(64, seed=42)
+        r2 = _random_orthogonal_matrix(64, seed=42)
+        np.testing.assert_array_equal(r1, r2)
+
+    def test_rotation_preserves_distances(self):
+        x = _rand_embeddings(n=50, d=64)
+        r = _random_orthogonal_matrix(64, seed=0)
+        x_rot = x @ r
+        from scipy.spatial.distance import cdist
+
+        d_orig = cdist(x, x, metric="euclidean")
+        d_rot = cdist(x_rot, x_rot, metric="euclidean")
+        np.testing.assert_allclose(d_orig, d_rot, atol=1e-4)
+
+    def test_turbo4_roundtrip(self):
+        x = _rand_embeddings(n=100, d=64)
+        packed, scale, zp, n_dims, _seed = quantize_turbo(x, bits=4, seed=0)
+        assert packed.dtype == np.uint8
+        r = dequantize_turbo(packed, scale, zp, n_dims, bits=4, seed=0)
+        assert r.dtype == np.float32
+        assert r.shape == x.shape
+        # Reconstruction should be decent (rotation + 4-bit quant)
+        cos_sim = np.mean(
+            np.sum(x * r, axis=1) / (np.linalg.norm(x, axis=1) * np.linalg.norm(r, axis=1) + 1e-8)
+        )
+        assert cos_sim > 0.95
+
+    def test_turbo2_roundtrip(self):
+        x = _rand_embeddings(n=100, d=64)
+        packed, scale, zp, n_dims, _seed = quantize_turbo(x, bits=2, seed=0)
+        r = dequantize_turbo(packed, scale, zp, n_dims, bits=2, seed=0)
+        assert r.shape == x.shape
+
+    def test_turbo_via_unified_api(self):
+        x = _rand_embeddings(n=50, d=32)
+        for method in ("turbo8", "turbo4", "turbo3", "turbo2"):
+            result = quantize(x, method)
+            r = dequantize(result)
+            assert r.dtype == np.float32
+            assert r.shape == x.shape
+
+
 class TestUnifiedAPI:
     def test_quantize_dequantize_all_methods(self):
         x = _rand_embeddings(n=50, d=32)
-        for method in ("float16", "fp8", "int8", "int4", "int3", "int2", "binary"):
+        for method in (
+            "float16",
+            "fp8",
+            "int8",
+            "int4",
+            "int3",
+            "int2",
+            "binary",
+            "turbo8",
+            "turbo4",
+            "turbo3",
+            "turbo2",
+        ):
             result = quantize(x, method)
             r = dequantize(result)
             assert r.dtype == np.float32

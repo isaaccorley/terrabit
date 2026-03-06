@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 def build_flat_index(embeddings: np.ndarray) -> Any:
     d = embeddings.shape[1]
     index = faiss.IndexFlatL2(d)
-    cast(Any, index).add(np.ascontiguousarray(embeddings))
+    cast("Any", index).add(np.ascontiguousarray(embeddings))
     return index
 
 
@@ -48,15 +48,15 @@ def build_sq_index(embeddings: np.ndarray, qt: int) -> Any:
     d = embeddings.shape[1]
     index = faiss.IndexScalarQuantizer(d, qt)
     x = np.ascontiguousarray(embeddings)
-    cast(Any, index).train(x)
-    cast(Any, index).add(x)
+    cast("Any", index).train(x)
+    cast("Any", index).add(x)
     return index
 
 
 def build_binary_index(packed: np.ndarray) -> Any:
     d_bits = packed.shape[1] * 8
     index = faiss.IndexBinaryFlat(d_bits)
-    cast(Any, index).add(np.ascontiguousarray(packed))
+    cast("Any", index).add(np.ascontiguousarray(packed))
     return index
 
 
@@ -66,12 +66,12 @@ def build_binary_index(packed: np.ndarray) -> Any:
 
 
 def search_float(index: Any, queries: np.ndarray, k: int) -> np.ndarray:
-    _, ids = cast(Any, index).search(np.ascontiguousarray(queries), k)
+    _, ids = cast("Any", index).search(np.ascontiguousarray(queries), k)
     return ids
 
 
 def search_binary(index: Any, queries: np.ndarray, k: int) -> np.ndarray:
-    _, ids = cast(Any, index).search(np.ascontiguousarray(queries), k)
+    _, ids = cast("Any", index).search(np.ascontiguousarray(queries), k)
     return ids
 
 
@@ -230,10 +230,10 @@ def main() -> None:
         # Search
         t0 = time.perf_counter()
         if idx_type == "binary":
-            pred_knn = search_binary(cast(Any, idx), queries_bin, max_k)
+            pred_knn = search_binary(cast("Any", idx), queries_bin, max_k)
             ref_knn = gt_bin_knn
         else:
-            pred_knn = search_float(cast(Any, idx), queries, max_k)
+            pred_knn = search_float(cast("Any", idx), queries, max_k)
             ref_knn = gt_knn
         t_search = time.perf_counter() - t0
         qps = n_q / t_search if t_search > 0 else float("inf")

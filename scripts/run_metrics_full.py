@@ -86,6 +86,28 @@ def _parse_quant_meta(schema: pa.Schema) -> dict[str, Any]:
     return cast("dict[str, Any]", json.loads(raw.decode("utf-8")))
 
 
+def _dequantize_with_meta(
+    *,
+    q_values: np.ndarray,
+    qmeta: dict[str, Any],
+) -> np.ndarray:
+    dq_input: dict[str, Any] = {
+        "method": qmeta["method"],
+        "quantized": q_values,
+    }
+    if "scale" in qmeta:
+        dq_input["scale"] = np.asarray(qmeta["scale"], dtype=np.float32)
+    if "zero_point" in qmeta:
+        dq_input["zero_point"] = np.asarray(qmeta["zero_point"], dtype=np.float32)
+    if "n_dims" in qmeta:
+        dq_input["n_dims"] = int(qmeta["n_dims"])
+    if "turbo_bits" in qmeta:
+        dq_input["turbo_bits"] = int(qmeta["turbo_bits"])
+    if "turbo_seed" in qmeta:
+        dq_input["turbo_seed"] = int(qmeta["turbo_seed"])
+    return dequantize(dq_input)
+
+
 def _load_original_all(original_root: Path, batch_size: int) -> np.ndarray:
     chunks: list[np.ndarray] = []
     for file_path in _list_parquet_files(original_root):
@@ -107,17 +129,9 @@ def _load_reconstructed_all(method_root: Path, batch_size: int) -> np.ndarray:
         qmeta = _parse_quant_meta(pf.schema_arrow)
         for batch in pf.iter_batches(columns=["embedding"], batch_size=batch_size):
             q_values = _extract_2d(batch.column(0))
-            dq_input: dict[str, Any] = {
-                "method": qmeta["method"],
-                "quantized": q_values,
-            }
-            if "scale" in qmeta:
-                dq_input["scale"] = np.asarray(qmeta["scale"], dtype=np.float32)
-            if "zero_point" in qmeta:
-                dq_input["zero_point"] = np.asarray(qmeta["zero_point"], dtype=np.float32)
-            if "n_dims" in qmeta:
-                dq_input["n_dims"] = int(qmeta["n_dims"])
-            chunks.append(dequantize(dq_input).astype(np.float32, copy=False))
+            chunks.append(
+                _dequantize_with_meta(q_values=q_values, qmeta=qmeta).astype(np.float32, copy=False)
+            )
     if not chunks:
         raise ValueError(f"No parquet embeddings found under {method_root}")
     return np.concatenate(chunks, axis=0)

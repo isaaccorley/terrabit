@@ -9,7 +9,19 @@ import numpy as np
 if TYPE_CHECKING:
     from terrabit._typing import NDArrayF32
 
-QuantizationMethod = Literal["float16", "fp8", "int8", "int4", "int3", "int2", "binary"]
+QuantizationMethod = Literal[
+    "float16",
+    "fp8",
+    "int8",
+    "int4",
+    "int3",
+    "int2",
+    "binary",
+    "turbo8",
+    "turbo4",
+    "turbo3",
+    "turbo2",
+]
 
 
 def quantize_float16(x: NDArrayF32) -> np.ndarray[tuple[int, ...], np.dtype[np.float16]]:
@@ -124,36 +136,36 @@ def _unpack_bits(
     n_dims: int,
     bits: int,
 ) -> np.ndarray[tuple[int, ...], np.dtype[np.uint8]]:
-    """Unpack fixed-width values from bytes along feature axis."""
+    """Unpack fixed-width values from bytes along feature axis (vectorized).
+
+    2-bit and 4-bit use direct per-nibble/per-dibit bit-shifts (~40x faster
+    than a generic approach).  3-bit falls back to unpackbits+reshape (no clean
+    byte alignment) but still avoids the slow dot-product with powers.
+    """
     if bits not in (2, 3, 4):
         msg = f"Unsupported bit width for unpacking: {bits}"
         raise ValueError(msg)
 
-    n = packed.shape[0]
-    unpacked = np.zeros((n, n_dims), dtype=np.uint8)
+    if bits == 2:
+        # 4 values per byte at bit positions [6:8, 4:6, 2:4, 0:2]
+        out = np.empty((packed.shape[0], packed.shape[1] * 4), dtype=np.uint8)
+        out[:, 0::4] = (packed >> 6) & 0x3
+        out[:, 1::4] = (packed >> 4) & 0x3
+        out[:, 2::4] = (packed >> 2) & 0x3
+        out[:, 3::4] = packed & 0x3
+        return out[:, :n_dims]
 
-    byte_idx = 0
-    bit_offset = 0
-    mask = (1 << bits) - 1
+    if bits == 4:
+        # 2 values per byte: high nibble then low nibble
+        out = np.empty((packed.shape[0], packed.shape[1] * 2), dtype=np.uint8)
+        out[:, 0::2] = (packed >> 4) & 0xF
+        out[:, 1::2] = packed & 0xF
+        return out[:, :n_dims]
 
-    for dim_idx in range(n_dims):
-        remaining = 8 - bit_offset
-        if bits <= remaining:
-            shift = remaining - bits
-            unpacked[:, dim_idx] = (packed[:, byte_idx] >> shift) & mask
-            bit_offset += bits
-            if bit_offset == 8:
-                byte_idx += 1
-                bit_offset = 0
-        else:
-            high_bits = bits - remaining
-            part1 = (packed[:, byte_idx] & ((1 << remaining) - 1)) << high_bits
-            byte_idx += 1
-            part2 = packed[:, byte_idx] >> (8 - high_bits)
-            unpacked[:, dim_idx] = (part1 | part2) & mask
-            bit_offset = high_bits
-
-    return unpacked
+    # bits == 3: no clean byte alignment — use unpackbits then explicit shifts
+    bits_2d = np.unpackbits(packed, axis=1, bitorder="big")[:, : n_dims * 3]
+    bits_3d = bits_2d.reshape(packed.shape[0], n_dims, 3)
+    return ((bits_3d[:, :, 0] << 2) | (bits_3d[:, :, 1] << 1) | bits_3d[:, :, 2]).astype(np.uint8)
 
 
 def _quantize_intn(
@@ -256,6 +268,65 @@ def dequantize_binary(
     return 2.0 * bits.astype(np.float32) - 1.0
 
 
+_ORTHO_MATRIX_CACHE: dict[tuple[int, int], np.ndarray] = {}
+
+
+def _random_orthogonal_matrix(d: int, seed: int = 0) -> np.ndarray:
+    """Generate a deterministic random orthogonal matrix via QR decomposition.
+
+    Result is cached per (d, seed) — QR on large d is expensive and the matrix
+    is identical across all calls with the same arguments.
+    """
+    key = (d, seed)
+    if key not in _ORTHO_MATRIX_CACHE:
+        rng = np.random.default_rng(seed)
+        z = rng.standard_normal((d, d)).astype(np.float32)
+        q, r = np.linalg.qr(z)
+        # Ensure uniform Haar distribution: fix sign ambiguity from QR
+        q *= np.sign(np.diag(r))[np.newaxis, :]
+        _ORTHO_MATRIX_CACHE[key] = q
+    return _ORTHO_MATRIX_CACHE[key]
+
+
+def quantize_turbo(
+    x: NDArrayF32,
+    bits: int,
+    seed: int = 0,
+) -> tuple[np.ndarray, NDArrayF32, NDArrayF32, int, int]:
+    """TurboQuant: random rotation + per-channel affine quantization.
+
+    Rotating by a random orthogonal matrix spreads information uniformly across
+    dimensions, making per-channel scalar quantization near-optimal.
+
+    Returns (quantized, scale, zero_point, n_dims, seed).
+    """
+    d = x.shape[1]
+    r_matrix = _random_orthogonal_matrix(d, seed=seed)
+    x_rot = x @ r_matrix  # (n, d) @ (d, d) -> (n, d); distances preserved
+    if bits == 8:
+        q, scale, zp = quantize_int8(x_rot)
+        return q, scale, zp, d, seed
+    packed, scale, zp, n_dims = _quantize_intn(x_rot, bits)
+    return packed, scale, zp, n_dims, seed
+
+
+def dequantize_turbo(
+    quantized: np.ndarray,
+    scale: NDArrayF32,
+    zero_point: NDArrayF32,
+    n_dims: int,
+    bits: int,
+    seed: int = 0,
+) -> NDArrayF32:
+    """Dequantize TurboQuant: unpack, inverse-rotate back to original space."""
+    if bits == 8:
+        x_rot = dequantize_int8(quantized, scale, zero_point)
+    else:
+        x_rot = _dequantize_intn(quantized, scale, zero_point, n_dims, bits)
+    r_matrix = _random_orthogonal_matrix(n_dims, seed=seed)
+    return x_rot @ r_matrix.T
+
+
 def hamming_distance(
     a: np.ndarray[tuple[int, ...], np.dtype[np.uint8]],
     b: np.ndarray[tuple[int, ...], np.dtype[np.uint8]],
@@ -311,6 +382,18 @@ def quantize(
             "n_dims": x.shape[1],
             "method": "binary",
         }
+    if method in ("turbo8", "turbo4", "turbo3", "turbo2"):
+        bits = int(method[5:])
+        q, scale, zp, n_dims, seed = quantize_turbo(x, bits=bits)
+        return {
+            "quantized": q,
+            "scale": scale,
+            "zero_point": zp,
+            "n_dims": n_dims,
+            "turbo_bits": bits,
+            "turbo_seed": seed,
+            "method": method,
+        }
     msg = f"Unknown quantization method: {method}"
     raise ValueError(msg)
 
@@ -347,5 +430,14 @@ def dequantize(result: dict[str, Any]) -> NDArrayF32:
         )
     if method == "binary":
         return dequantize_binary(result["quantized"], result["n_dims"])
+    if method in ("turbo8", "turbo4", "turbo3", "turbo2"):
+        return dequantize_turbo(
+            result["quantized"],
+            result["scale"],
+            result["zero_point"],
+            result["n_dims"],
+            bits=result["turbo_bits"],
+            seed=result["turbo_seed"],
+        )
     msg = f"Unknown quantization method: {method}"
     raise ValueError(msg)

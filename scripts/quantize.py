@@ -37,6 +37,10 @@ ALL_METHODS: tuple[QuantizationMethod, ...] = (
     "int3",
     "int2",
     "binary",
+    "turbo8",
+    "turbo4",
+    "turbo3",
+    "turbo2",
 )
 
 
@@ -138,6 +142,10 @@ def _process_one_file(
             quant_meta["zero_point"] = np.asarray(
                 quantized["zero_point"], dtype=np.float32
             ).tolist()
+        if "turbo_bits" in quantized:
+            quant_meta["turbo_bits"] = int(quantized["turbo_bits"])
+        if "turbo_seed" in quantized:
+            quant_meta["turbo_seed"] = int(quantized["turbo_seed"])
 
         schema_meta = dict(quantized_table.schema.metadata or {})
         schema_meta[b"quantization"] = json.dumps(quant_meta, separators=(",", ":")).encode("utf-8")

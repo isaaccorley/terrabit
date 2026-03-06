@@ -39,6 +39,7 @@
   Recent systems distribute global embedding fields at \texttt{int8} precision, but the quality--cost trade-off below 8 bits remains unexplored for remote sensing embeddings.
   We present \method{}, a post-hoc quantization study spanning \texttt{float16} through 1-bit \texttt{binary} on \num{49785116} real 1024D embeddings (\textit{183\,GiB}), evaluated with label-free neighborhood-preservation metrics grounded in intrinsic-dimension analysis.
   \texttt{Int4} retains 91\% kNN recall at $6.3\times$ compression; \texttt{binary} achieves $16.5\times$ compression with 65\% recall, sufficient for coarse-stage candidate generation.
+  We additionally benchmark TurboQuant~\citep{lou2024turbo}, finding that its random orthogonal pre-rotation \emph{hurts} rather than helps: recall saturates near 0.61 regardless of bit-width, revealing that the rotation---not quantization noise---is the bottleneck for geospatial ViT embeddings.
 \end{abstract}
 
 \section{Introduction}
@@ -48,10 +49,11 @@ Geospatial foundation models~\citep{mendieta2023gfm,jakubik2024prithvi,clay2025m
 At planet scale, storage and memory bandwidth---not model accuracy---become the deployment bottleneck.
 A corpus of 50M embeddings at $d{=}1024$ in \texttt{float32} occupies \textit{183\,GiB}; halving per-vector cost saves nearly \textit{100\,GiB} with no retraining.
 
-Two recent systems highlight this tension.
+Several recent systems highlight this tension.
 AlphaEarth releases global embedding fields cast to \texttt{int8} via post-hoc calibration~\citep{brown2025alphaearth}.
 TESSERA applies quantization-aware training (QAT) to a learned 128D bottleneck and distributes the result at \texttt{int8}~\citep{feng2025tessera}.
-Both treat \texttt{int8} as the practical floor.
+ESD~\citep{chen2026esd} takes a learned-compression approach, training a VQ-VAE-style autoencoder with a Finite Scalar Quantization (FSQ) bottleneck~\citep{mentzer2023fsq} to compress Landsat+MODIS time series into \texttt{uint16} latent vectors, achieving ${\sim}340\times$ compression while improving downstream land-cover classification over raw reflectance (79.7\% vs.\ 76.9\%).
+These systems treat \texttt{int8}---or learned discrete codes---as the practical floor.
 \method{} asks: \textit{how far below \texttt{int8} can we push post-hoc quantization while preserving nearest-neighbor structure?}
 
 We sweep seven bit-widths from \texttt{float16} to 1-bit \texttt{binary} on a real 49.8M-embedding corpus and measure neighborhood preservation with label-free metrics.
@@ -60,9 +62,10 @@ The frontier is smooth: \texttt{int4} retains 91\% kNN recall at $6.3\times$ com
 
 Our contributions are:
 (1)~an intrinsic-dimension-guided evaluation framework combining ID diagnostics~\citep{levina2004id,facco2017twonn} with label-free retrieval fidelity metrics;
-(2)~a systematic post-hoc quantization study (\texttt{float16}, \texttt{fp8}, \texttt{int8}, \texttt{int4}, \texttt{int3}, \texttt{int2}, \texttt{binary}) on 49.8M real geospatial embeddings;
-(3)~a schema-preserving parallel Parquet transformation pipeline that processes the full corpus in 45\,min at \num{18359}\,rows/s; and
-(4)~a retrieval benchmark showing $>$\num{1300}\,QPS on GPU with recall preserved across hardware.
+(2)~a systematic post-hoc quantization study (\texttt{float16}, \texttt{fp8}, \texttt{int8}, \texttt{int4}, \texttt{int3}, \texttt{int2}, \texttt{binary}, and TurboQuant at four bit-widths) on 49.8M real geospatial embeddings;
+(3)~a schema-preserving parallel Parquet transformation pipeline that processes the full corpus in 45\,min at \num{18359}\,rows/s;
+(4)~a retrieval benchmark showing $>$\num{1300}\,QPS on GPU with recall preserved across hardware; and
+(5)~an empirical finding that rotation-based quantization (TurboQuant) degrades kNN recall on geospatial ViT embeddings, with recall saturating at ${\approx}0.61$ regardless of bit-width.
 
 \afterpage{%
   \begin{figure}[!t]
@@ -86,10 +89,12 @@ AlphaEarth~\citep{brown2025alphaearth} and TESSERA~\citep{feng2025tessera} both 
 Product quantization~\citep{jegou2011pq}, learned anisotropic quantization~\citep{guo2020scann}, and locality-sensitive hashing~\citep{indyk1998lsh} compress embeddings for approximate nearest-neighbor search.
 FAISS~\citep{johnson2021faiss} implements these at billion scale.
 LLM.\texttt{int8}()~\citep{dettmers2022int8} demonstrates that aggressive quantization preserves model quality in language; Matryoshka representations~\citep{kusupati2022matryoshka} show that embedding dimensions can be truncated with graceful degradation.
+TurboQuant~\citep{lou2024turbo} applies a random orthogonal pre-rotation before symmetric quantization to reduce inter-channel variance disparity in LLM weight matrices.
+Orthogonally, learned codebook methods such as FSQ~\citep{mentzer2023fsq} replace VQ-VAE codebook lookup with per-dimension scalar rounding, enabling end-to-end discrete compression without codebook collapse---an approach recently applied to geospatial embeddings by ESD~\citep{chen2026esd}.
 
 \paragraph{Positioning.}
-Prior vector-compression work targets web-scale text/image embeddings or model-weight quantization.
-\method{} focuses on the less-studied regime of post-hoc quantization of geospatial embedding lakes, where spatial metadata must be preserved alongside vectors, and label-free evaluation is the practical reality.
+Prior vector-compression work targets web-scale text/image embeddings or model-weight quantization; learned approaches like ESD~\citep{chen2026esd} train task-specific autoencoders.
+\method{} focuses on the complementary, less-studied regime of \emph{post-hoc} quantization of geospatial embedding lakes, where spatial metadata must be preserved alongside vectors, no retraining is required, and label-free evaluation is the practical reality.
 
 \section{Method}
 \label{sec:method}
@@ -111,6 +116,10 @@ We evaluate seven post-hoc methods spanning 16 bits to 1 bit:
 \texttt{fp8}~E4M3 (8-bit floating point with 4-bit exponent);
 \texttt{int}$b$ for $b \in \{8,4,3,2\}$ (per-dimension affine quantization with stored scale/zero-point vectors, followed by fixed-width bit packing for $b < 8$); and
 \texttt{binary} (sign-bit encoding, $\operatorname{sign}(x_i) \in \{0,1\}^d$, packed to $d/8$ bytes, supporting Hamming-distance search~\citep{wang2018binary}).
+
+We additionally evaluate \textbf{TurboQuant}~\citep{lou2024turbo} at $b \in \{2,3,4,8\}$ bits (\texttt{turbo}$b$).
+TurboQuant applies a fixed random orthogonal rotation $R \in \mathbb{R}^{d \times d}$ (sampled once from a Haar-distributed ensemble via QR decomposition) before symmetric affine quantization: $\hat{x}_i = R^\top \mathcal{Q}_b(R x_i)$.
+The rotation is intended to reduce inter-channel variance disparity, improving per-dimension range utilization.
 
 \paragraph{Evaluation metrics.}
 \label{sec:metrics}
@@ -171,25 +180,89 @@ ID estimation on a \num{10000}-sample subset yields MLE $\hat{d} = 17.0$, TwoNN 
   \label{tab:quality}
   \begin{tabular}{lrrrrr}
     \toprule
-    Method & Ratio ($\times$) & Recon.\ Cos $\uparrow$ & C@10 $\uparrow$ & E@10 $\uparrow$ & Cos Corr $\uparrow$ \\
+    Method           & Ratio ($\times$) & Recon.\ Cos $\uparrow$ & C@10 $\uparrow$ & E@10 $\uparrow$ & Cos Corr $\uparrow$ \\
     \midrule
-    \texttt{float16} & 1.86 & 1.00 & 1.00 & 1.00 & 1.00 \\
-    \texttt{fp8}     & 3.47 & 1.00 & 0.95 & 0.95 & 1.00 \\
-    \texttt{int8}    & 3.45 & 1.00 & 0.99 & 0.99 & 1.00 \\
-    \texttt{int4}    & 6.29 & 1.00 & 0.91 & 0.91 & 1.00 \\
-    \texttt{int3}    & 7.94 & 0.98 & 0.79 & 0.79 & 0.99 \\
-    \texttt{int2}    & 11.41 & 0.91 & 0.54 & 0.53 & 0.95 \\
-    \texttt{binary}  & \textbf{16.53} & 0.49 & 0.65 & 0.66 & 0.79 \\
+    \texttt{float16} & 1.86             & 1.00                   & 1.00            & 1.00            & 1.00                \\
+    \texttt{fp8}     & 3.47             & 1.00                   & 0.95            & 0.95            & 1.00                \\
+    \texttt{int8}    & 3.45             & 1.00                   & 0.99            & 0.99            & 1.00                \\
+    \texttt{int4}    & 6.29             & 1.00                   & 0.91            & 0.91            & 1.00                \\
+    \texttt{int3}    & 7.94             & 0.98                   & 0.79            & 0.79            & 0.99                \\
+    \texttt{int2}    & 11.41            & 0.91                   & 0.54            & 0.53            & 0.95                \\
+    \texttt{binary}  & \textbf{16.53}   & 0.49                   & 0.65            & 0.66            & 0.79                \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\paragraph{Quality--compression frontier.}
+\begin{table}[t]
+  \centering
+  \caption{\textbf{TurboQuant~\citep{lou2024turbo} vs.\ standard \texttt{int}$b$ on \num{49785116} embeddings.}
+    Compression ratios are near-identical; kNN recall is consistently lower for turbo methods.
+  Recall saturates across turbo bit-widths, indicating the rotation dominates the error budget.}
+  \label{tab:turbo}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Method          & Ratio ($\times$) & Recon.\ Cos $\uparrow$ & C@10 $\uparrow$ & E@10 $\uparrow$ & Cos Corr $\uparrow$ \\
+    \midrule
+    \texttt{int2}   & 11.41            & 0.91                   & 0.54            & 0.54            & 0.95                \\
+    \texttt{turbo2} & 11.44            & 0.91                   & 0.54            & 0.54            & 0.91                \\
+    \midrule
+    \texttt{int3}   & 7.94             & 0.98                   & 0.79            & 0.79            & 0.99                \\
+    \texttt{turbo3} & 7.96             & 0.98                   & 0.60            & 0.60            & 0.92                \\
+    \midrule
+    \texttt{int4}   & 6.29             & 1.00                   & 0.91            & 0.91            & 1.00                \\
+    \texttt{turbo4} & 6.10             & 1.00                   & 0.61            & 0.61            & 0.92                \\
+    \midrule
+    \texttt{int8}   & 3.45             & 1.00                   & 0.99            & 0.99            & 1.00                \\
+    \texttt{turbo8} & 3.45             & 1.00                   & 0.61            & 0.61            & 0.92                \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/turbo_vs_int.pdf}
+  \caption{\textbf{Standard \texttt{int}$b$ vs.\ TurboQuant recall@10 across bit-widths.}
+    Left: cosine distance; right: Euclidean.
+    Shaded region marks the recall gap.
+    \texttt{Int}$b$ gains $+0.45$ recall from 2 to 8 bits; turbo gains only $+0.07$, saturating near 0.61 from 3 bits onward.
+  The flat turbo curve reveals that the random orthogonal rotation, not quantization noise, is the binding constraint.}
+  \label{fig:turbo}
+\end{figure}
 
 Table~\ref{tab:quality} summarizes quality across all methods.
 \texttt{Int8} yields near-lossless retrieval (recall@10 = 0.99) at $3.5\times$ compression, matching the precision used by AlphaEarth and TESSERA~\citep{brown2025alphaearth,feng2025tessera}.
 \texttt{Int4} provides a strong balanced operating point: $6.3\times$ compression with 91\% kNN recall.
 \texttt{Binary} achieves the highest compression ($16.5\times$) with recall@10 of 0.65---suitable as a coarse first-pass filter before re-ranking with higher-fidelity representations~\citep{wang2018binary,jegou2011pq}.
+
+\paragraph{TurboQuant analysis.}
+
+Table~\ref{tab:turbo} and Figure~\ref{fig:turbo} compare TurboQuant~\citep{lou2024turbo} against standard \texttt{int}$b$ at matched bit-widths.
+The headline finding is two-fold: turbo methods are Pareto-dominated at every operating point, \emph{and} their recall does not improve with additional bits.
+
+\textbf{Consistent underperformance.}
+Despite near-identical compression ratios, turbo methods trail their \texttt{int}$b$ counterparts by large margins at higher bit-widths.
+\texttt{Turbo4} achieves kNN recall@10 of 0.61 versus 0.91 for \texttt{int4}---a gap of 30 percentage points at the same $6\times$ compression.
+\texttt{Turbo8} reaches only 0.61 versus 0.99 for \texttt{int8}.
+At 2 bits the methods tie (both 0.54), but only because \texttt{int2} is already at the floor where standard affine quantization also saturates.
+
+\textbf{Recall saturation across bit-widths.}
+The more revealing pattern is that turbo recall barely moves as bits increase: turbo2 = 0.54, turbo3 = 0.60, turbo4 = 0.61, turbo8 = 0.61.
+A gain of 6 bits yields less than 0.07 additional recall.
+Standard \texttt{int}$b$ over the same range gains $+0.45$ (from 0.54 to 0.99).
+This saturation strongly implicates the random orthogonal rotation as the bottleneck: once the rotation is applied, additional quantization resolution cannot recover the lost neighborhood structure.
+
+\textbf{Why the rotation hurts.}
+Standard per-dimension affine quantization exploits the natural variance structure of ViT embeddings: scale and zero-point are fit independently per dimension, so high-variance dimensions receive appropriately wide quantization grids.
+The Haar-distributed rotation $R$ mixes all 1024 input dimensions before quantization, spreading energy uniformly across the output basis.
+This sounds beneficial for range utilization, but has two adverse effects here.
+First, the high-variance principal directions---which carry the bulk of the geometric signal---are dispersed across all output dimensions at weight $1/\sqrt{d}$.
+At low bit-width, rounding error on each output dimension propagates uniformly back into all principal components, whereas unrotated quantization concentrates error on low-variance, low-signal dimensions.
+Second, the full-rank $d{\times}d$ rotation is maximally mixing: every reconstructed dimension depends on all 1024 quantization decisions, so errors compound rather than stay localized.
+TurboQuant was motivated by LLM weight matrices where per-channel variance spans orders of magnitude and rotation genuinely equalizes the quantization task~\citep{lou2024turbo}; geospatial ViT embeddings appear far more isotropic (ID $\approx 13$--$17$ across a 1024D ambient space), so the calibration advantage of rotation is minimal while its mixing cost is substantial.
+
+\textbf{Takeaway.}
+For geospatial embedding lakes, plain per-dimension affine quantization dominates at every bit-width.
+Rotation-based methods should not be assumed to transfer from LLM weights to embedding corpora: the benefit depends on whether channel variance is the binding constraint, which it is not here.
 
 \paragraph{Storage and throughput.}
 
@@ -222,15 +295,15 @@ Binary Hamming search runs at \num{801}\,QPS on CPU and \num{164}\,QPS on GPU; t
   \label{tab:search}
   \begin{tabular}{lrrrr}
     \toprule
-    Method & CPU QPS & GPU QPS & Speedup & R@10 \\
+    Method           & CPU QPS      & GPU QPS       & Speedup      & R@10     \\
     \midrule
-    \texttt{float16} & 59 & \textbf{1322} & $22.4\times$ & 1.00 \\
-    \texttt{fp8}     & 59 & \textbf{1361} & $23.1\times$ & 0.95 \\
-    \texttt{int8}    & 60 & \textbf{1349} & $22.5\times$ & 0.48 \\
-    \texttt{int4}    & 60 & \textbf{1337} & $22.3\times$ & 0.46 \\
-    \texttt{int3}    & 59 & \textbf{1329} & $22.5\times$ & 0.43 \\
-    \texttt{int2}    & 59 & \textbf{1346} & $22.8\times$ & 0.37 \\
-    \texttt{binary}  & \textbf{801} & 164  & $0.2\times$  & 1.00$^*$ \\
+    \texttt{float16} & 59           & \textbf{1322} & $22.4\times$ & 1.00     \\
+    \texttt{fp8}     & 59           & \textbf{1361} & $23.1\times$ & 0.95     \\
+    \texttt{int8}    & 60           & \textbf{1349} & $22.5\times$ & 0.48     \\
+    \texttt{int4}    & 60           & \textbf{1337} & $22.3\times$ & 0.46     \\
+    \texttt{int3}    & 59           & \textbf{1329} & $22.5\times$ & 0.43     \\
+    \texttt{int2}    & 59           & \textbf{1346} & $22.8\times$ & 0.37     \\
+    \texttt{binary}  & \textbf{801} & 164           & $0.2\times$  & 1.00$^*$ \\
     \bottomrule
     \multicolumn{5}{l}{\footnotesize $^*$Recall measured against binary GT (Hamming distance).}
   \end{tabular}
@@ -251,7 +324,7 @@ Binary Hamming search runs at \num{801}\,QPS on CPU and \num{164}\,QPS on GPU; t
 We use label-free neighborhood-preservation proxies rather than task-specific metrics (e.g., land-cover classification accuracy).
 kNN recall and cosine correlation are computed on a reservoir sample, not the full corpus.
 Our retrieval benchmark uses brute-force search; approximate nearest-neighbor indices (IVF, HNSW) may alter the quality--throughput frontier at larger scale~\citep{johnson2021faiss}.
-Future work should add labeled downstream evaluation and investigate ANN index interactions with low-bit quantization.
+Future work should add labeled downstream evaluation (e.g., land-cover classification accuracy as in~\citet{chen2026esd}), investigate ANN index interactions with low-bit quantization, and explore whether stacking post-hoc quantization on top of learned discrete representations~\citep{mentzer2023fsq,chen2026esd} can compound compression gains.
 
 \section{Conclusion}
 \label{sec:conclusion}

@@ -154,6 +154,10 @@ def _dequantize_with_meta(
         dq_input["zero_point"] = np.asarray(qmeta["zero_point"], dtype=np.float32)
     if "n_dims" in qmeta:
         dq_input["n_dims"] = int(qmeta["n_dims"])
+    if "turbo_bits" in qmeta:
+        dq_input["turbo_bits"] = int(qmeta["turbo_bits"])
+    if "turbo_seed" in qmeta:
+        dq_input["turbo_seed"] = int(qmeta["turbo_seed"])
     return dequantize(dq_input)
 
 
@@ -199,6 +203,43 @@ def _exact_metrics_for_file(
     }
 
 
+def _reservoir_update_pair(
+    *,
+    rng: np.random.Generator,
+    sample_a: np.ndarray,
+    sample_b: np.ndarray,
+    batch_a: np.ndarray,
+    batch_b: np.ndarray,
+    n_seen: int,
+    reservoir_size: int,
+) -> int:
+    """Update two aligned reservoirs with the same slot decisions. Returns updated n_seen."""
+    batch_n = int(batch_a.shape[0])
+
+    # Phase 1: fill empty slots directly (no RNG needed)
+    if n_seen < reservoir_size:
+        fill_end = min(n_seen + batch_n, reservoir_size)
+        fill_n = fill_end - n_seen
+        sample_a[n_seen:fill_end] = batch_a[:fill_n]
+        sample_b[n_seen:fill_end] = batch_b[:fill_n]
+        n_seen += fill_n
+        batch_a = batch_a[fill_n:]
+        batch_b = batch_b[fill_n:]
+        batch_n -= fill_n
+
+    # Phase 2: probabilistic replacement for rows beyond reservoir_size
+    if batch_n > 0:
+        row_indices = np.arange(n_seen, n_seen + batch_n, dtype=np.int64)
+        slots = rng.integers(0, row_indices + 1, dtype=np.int64)
+        keep_mask = slots < reservoir_size
+        keep_slots = slots[keep_mask]
+        sample_a[keep_slots] = batch_a[keep_mask]
+        sample_b[keep_slots] = batch_b[keep_mask]
+        n_seen += batch_n
+
+    return n_seen
+
+
 def _sample_reservoir(
     *,
     pairs: list[tuple[Path, Path]],
@@ -208,9 +249,15 @@ def _sample_reservoir(
     progress_every: int,
     method: str,
 ) -> tuple[np.ndarray, np.ndarray, int]:
+    """Reservoir-sample orig and quantized rows, dequantizing only the reservoir at the end.
+
+    Dequantization is deferred to a single pass over the reservoir (reservoir_size rows)
+    rather than over the full dataset (~50M rows), which is a ~2500x reduction in dequant work.
+    """
     rng = np.random.default_rng(seed)
     sample_orig: np.ndarray | None = None
-    sample_recon: np.ndarray | None = None
+    sample_quant: np.ndarray | None = None
+    qmeta_saved: dict[str, Any] | None = None
     n_seen = 0
 
     total_files = len(pairs)
@@ -218,40 +265,42 @@ def _sample_reservoir(
         orig_pf = pq.ParquetFile(orig_file)
         quant_pf = pq.ParquetFile(quant_file)
         qmeta = _parse_quant_meta(quant_pf.schema_arrow)
+        if qmeta_saved is None:
+            qmeta_saved = qmeta
 
         orig_batches = orig_pf.iter_batches(columns=["embedding"], batch_size=batch_size)
         quant_batches = quant_pf.iter_batches(columns=["embedding"], batch_size=batch_size)
         for orig_batch, quant_batch in zip(orig_batches, quant_batches, strict=True):
             x_orig = _extract_2d(orig_batch.column(0)).astype(np.float32, copy=False)
             q_values = _extract_2d(quant_batch.column(0))
-            x_recon = _dequantize_with_meta(q_values=q_values, qmeta=qmeta)
 
-            batch_n = int(x_orig.shape[0])
             if sample_orig is None:
-                dim = int(x_orig.shape[1])
-                sample_orig = np.empty((reservoir_size, dim), dtype=np.float32)
-                sample_recon = np.empty((reservoir_size, dim), dtype=np.float32)
-            assert sample_recon is not None
+                orig_dim = int(x_orig.shape[1])
+                quant_dim = int(q_values.shape[1])
+                sample_orig = np.empty((reservoir_size, orig_dim), dtype=np.float32)
+                sample_quant = np.empty((reservoir_size, quant_dim), dtype=q_values.dtype)
+            assert sample_quant is not None
 
-            for row_idx in range(batch_n):
-                if n_seen < reservoir_size:
-                    sample_orig[n_seen] = x_orig[row_idx]
-                    sample_recon[n_seen] = x_recon[row_idx]
-                else:
-                    slot = int(rng.integers(0, n_seen + 1))
-                    if slot < reservoir_size:
-                        sample_orig[slot] = x_orig[row_idx]
-                        sample_recon[slot] = x_recon[row_idx]
-                n_seen += 1
+            n_seen = _reservoir_update_pair(
+                rng=rng,
+                sample_a=sample_orig,
+                sample_b=sample_quant,
+                batch_a=x_orig,
+                batch_b=q_values,
+                n_seen=n_seen,
+                reservoir_size=reservoir_size,
+            )
 
         if idx % progress_every == 0 or idx == total_files:
             console.print(f"  {method}: sampling {idx}/{total_files} files  seen_rows={n_seen}")
 
-    if sample_orig is None or sample_recon is None:
+    if sample_orig is None or sample_quant is None or qmeta_saved is None:
         raise ValueError(f"No data found for method {method}")
 
     sample_n = min(reservoir_size, n_seen)
-    return sample_orig[:sample_n], sample_recon[:sample_n], sample_n
+    # Dequantize only the reservoir rows — O(reservoir_size) not O(N)
+    x_sample_recon = _dequantize_with_meta(q_values=sample_quant[:sample_n], qmeta=qmeta_saved)
+    return sample_orig[:sample_n], x_sample_recon, sample_n
 
 
 def _evaluate_method_streaming(
