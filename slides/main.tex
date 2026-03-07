@@ -74,139 +74,372 @@
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{tikz}
+\usepackage{siunitx}
+\sisetup{group-separator = {,}, group-minimum-digits = 4}
 
 % ---------- Metadata ----------
-\title{Paper Title}
-\subtitle{Venue / Workshop Name}
-\author{Author Name}
-\institute{Institution}
-\date{\today}
+\title{TerraBit}
+\subtitle{Low-Bit Quantization of Geospatial Embedding Lakes}
+\author{Isaac Corley}
+\institute{Independent Researcher}
+\date{ICML 2025 Workshop}
 
 \begin{document}
 
 % ===== Title =====
 {
-  \setbeamercolor{background canvas}{bg=Primary}
-  \setbeamertemplate{footline}{}
-  \begin{frame}[plain]
-    \vfill
-    \begin{center}
-      {\Large\bfseries\color{white}\inserttitle}\\[12pt]
-      {\normalsize\color{Accent}\insertsubtitle}\\[24pt]
-      {\small\color{white!80}\insertauthor}\\[4pt]
-      {\footnotesize\color{white!60}\insertinstitute}\\[4pt]
-      {\footnotesize\color{white!50}\insertdate}
-    \end{center}
-    \vfill
-  \end{frame}
+\setbeamercolor{background canvas}{bg=Primary}
+\setbeamertemplate{footline}{}
+\begin{frame}[plain]
+	\vfill
+	\begin{center}
+		{\Large\bfseries\color{white}\inserttitle}\\[8pt]
+		{\normalsize\color{Accent}\insertsubtitle}\\[24pt]
+		{\small\color{white!80}\insertauthor}\\[4pt]
+		{\footnotesize\color{white!60}\insertinstitute}\\[4pt]
+		{\footnotesize\color{white!50}\insertdate}
+	\end{center}
+	\vfill
+\end{frame}
 }
 
 % ===== Outline =====
 \begin{frame}{Outline}
-  \tableofcontents
+	\tableofcontents
 \end{frame}
 
-% ===== Motivation =====
+% =============================================================================
 \section{Motivation}
+% =============================================================================
 
-\begin{frame}{Motivation}
-  \begin{itemize}
-    \item Problem statement and why it matters
-    \item Key challenge or gap in existing work
-    \item Our approach in one sentence
-  \end{itemize}
+\begin{frame}{The Embedding Lake Problem}
+	\begin{columns}[T]
+		\begin{column}{0.55\textwidth}
+			\begin{itemize}
+				\item Geospatial foundation models (Clay, Prithvi, GFM) produce
+				      planet-scale \textbf{embedding lakes}
+				\item 50M embeddings $\times$ 1024D $\times$ \texttt{float32}
+				      $=$ \textbf{183\,GiB}
+				\item At deployment: \emph{storage and bandwidth} dominate cost,
+				      not model accuracy
+				\item Current practice: \texttt{int8} (AlphaEarth, TESSERA)
+				\item Open question: \textit{how far below \texttt{int8} can we go?}
+			\end{itemize}
+		\end{column}
+		\begin{column}{0.42\textwidth}
+			\includegraphics[width=\linewidth]{figs/storage.pdf}
+		\end{column}
+	\end{columns}
 \end{frame}
 
-% ===== Method =====
+% =============================================================================
 \section{Method}
+% =============================================================================
 
-\begin{frame}{Method}
-  \framesubtitle{Overview}
-  \begin{columns}[T]
-    \begin{column}{0.48\textwidth}
-      \begin{itemize}
-        \item Step 1: Description
-        \item Step 2: Description
-        \item Step 3: Description
-      \end{itemize}
-    \end{column}
-    \begin{column}{0.48\textwidth}
-      % \includegraphics[width=\linewidth]{figs/method.pdf}
-      \begin{block}{Key Equation}
-        \begin{equation*}
-          \mathcal{L} = \mathbb{E}_{x \sim p(x)} \left[ f_\theta(x) \right]
-        \end{equation*}
-      \end{block}
-    \end{column}
-  \end{columns}
+\begin{frame}{Intrinsic Dimension Diagnostics}
+	\framesubtitle{Why aggressive quantization can work}
+	\begin{columns}[T]
+		\begin{column}{0.52\textwidth}
+			\begin{itemize}
+				\item Before compressing: estimate the intrinsic dimension (ID) of the
+				      embedding manifold
+				\item Three estimators: MLE, TwoNN, Local PCA
+				\item Result: $\hat{d} \approx 13$--$17$ vs.\ ambient $d = 1024$
+				\item Massive structural redundancy $\Rightarrow$ most per-dimension
+				      variance is irrelevant for local geometry
+				\item Implication: aggressive quantization should not collapse
+				      neighborhood structure
+			\end{itemize}
+		\end{column}
+		\begin{column}{0.45\textwidth}
+			\includegraphics[width=\linewidth]{figs/intrinsic_dim.pdf}
+		\end{column}
+	\end{columns}
 \end{frame}
 
-% ===== Experiments =====
-\section{Experiments}
-
-\begin{frame}{Experiments}
-  \framesubtitle{Main Results}
-  \begin{table}
-    \centering
-    \begin{tabular}{lcc}
-      \toprule
-      Method & Metric 1 & Metric 2 \\
-      \midrule
-      Baseline A & 0.00 & 0.00 \\
-      Baseline B & 0.00 & 0.00 \\
-      \textbf{Ours} & \textbf{0.00} & \textbf{0.00} \\
-      \bottomrule
-    \end{tabular}
-  \end{table}
+\begin{frame}{Quantization Methods}
+	\framesubtitle{Seven post-hoc methods from 16 bits to 1 bit}
+	\begin{columns}[T]
+		\begin{column}{0.48\textwidth}
+			\begin{block}{Standard Methods}
+				\begin{itemize}
+					\item \texttt{float16} --- IEEE half-precision truncation
+					\item \texttt{fp8} E4M3 --- 8-bit float, 4-bit exponent
+					\item \texttt{int8/4/3/2} --- per-dim affine quantization
+					      with stored scale/zero-point, bit-packed for $b < 8$
+					\item \texttt{binary} --- sign-bit encoding, packed to
+					      $d/8$ bytes, Hamming-distance search
+				\end{itemize}
+			\end{block}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\begin{block}{TurboQuant}
+				\begin{itemize}
+					\item Random orthogonal pre-rotation $R$ before quantization
+					\item $\hat{x}_i = R^\top \mathcal{Q}_b(R x_i)$
+					\item Reduces inter-channel variance disparity
+					\item Tested at $b \in \{2, 3, 4, 8\}$ bits
+					\item Helps most at ultra-low bit-widths
+				\end{itemize}
+			\end{block}
+		\end{column}
+	\end{columns}
 \end{frame}
 
-\begin{frame}{Qualitative Results}
-  \begin{columns}[T]
-    \begin{column}{0.48\textwidth}
-      \begin{block}{Input}
-        % \includegraphics[width=\linewidth]{figs/input.pdf}
-        \centering\textit{(figure placeholder)}
-      \end{block}
-    \end{column}
-    \begin{column}{0.48\textwidth}
-      \begin{block}{Output}
-        % \includegraphics[width=\linewidth]{figs/output.pdf}
-        \centering\textit{(figure placeholder)}
-      \end{block}
-    \end{column}
-  \end{columns}
+\begin{frame}{Evaluation Approach}
+	\framesubtitle{Label-free, retrieval-oriented metrics}
+	\begin{itemize}
+		\item No labels needed --- evaluation grounded in intrinsic-dimension analysis
+		\item \textbf{kNN recall@$k$} ($k \in \{10, 25, 50\}$) under cosine and
+		      Euclidean distance
+		      \begin{itemize}
+			      \item Fraction of true $k$-nearest neighbors preserved post-quantization
+		      \end{itemize}
+		\item \textbf{Cosine rank correlation} --- Spearman $\rho$ of pairwise
+		      similarities (original vs.\ quantized)
+		\item \textbf{Reconstruction cosine} and MSE (where dequantization available)
+		\item Quality metrics on \num{20000}-row reservoir sample;
+		      reconstruction exact over all 49.8M rows
+	\end{itemize}
 \end{frame}
 
-% ===== Conclusion =====
-\section{Conclusion}
+% =============================================================================
+\section{Results}
+% =============================================================================
 
-\begin{frame}{Conclusion}
-  \begin{itemize}
-    \item Summary of contributions
-    \item Key takeaway
-    \item Future work directions
-  \end{itemize}
+\begin{frame}{Quality--Compression Trade-off}
+	\framesubtitle{Smooth degradation from \texttt{float16} to \texttt{binary}}
+	\begin{columns}[T]
+		\begin{column}{0.48\textwidth}
+			\begin{table}
+				\centering
+				\footnotesize
+				\begin{tabular}{lrrr}
+					\toprule
+					Method           & Ratio                 & C@10 & Cos Corr \\
+					\midrule
+					\texttt{float16} & $1.9\times$           & 1.00 & 1.00     \\
+					\texttt{fp8}     & $3.5\times$           & 0.95 & 1.00     \\
+					\texttt{int8}    & $3.5\times$           & 0.99 & 1.00     \\
+					\texttt{int4}    & $6.3\times$           & 0.91 & 1.00     \\
+					\texttt{int3}    & $7.9\times$           & 0.79 & 0.99     \\
+					\texttt{int2}    & $11.4\times$          & 0.54 & 0.95     \\
+					\texttt{binary}  & $\mathbf{16.5\times}$ & 0.65 & 0.79     \\
+					\bottomrule
+				\end{tabular}
+			\end{table}
+			\vspace{6pt}
+			\begin{itemize}
+				\item \texttt{int8}: near-lossless (R@10 = 0.99)
+				\item \texttt{int4}: sweet spot ($6.3\times$, 91\%)
+				\item \texttt{binary}: coarse retrieval ($16.5\times$, 65\%)
+			\end{itemize}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\includegraphics[width=\linewidth]{figs/knn_recall_k.pdf}
+		\end{column}
+	\end{columns}
+\end{frame}
 
-  \vfill
-  \begin{alertblock}{Code \& Paper}
-    \url{https://github.com/username/repo}
-  \end{alertblock}
+\begin{frame}{TurboQuant vs.\ Standard Quantization}
+	\framesubtitle{Rotation helps most at ultra-low bits}
+	\begin{columns}[T]
+		\begin{column}{0.45\textwidth}
+			\begin{table}
+				\centering
+				\footnotesize
+				\begin{tabular}{lrr}
+					\toprule
+					Method          & C@10 & $\Delta$       \\
+					\midrule
+					\texttt{int2}   & 0.54 & ---            \\
+					\texttt{turbo2} & 0.71 & \textbf{+0.17} \\
+					\midrule
+					\texttt{int3}   & 0.79 & ---            \\
+					\texttt{turbo3} & 0.88 & +0.09          \\
+					\midrule
+					\texttt{int4}   & 0.91 & ---            \\
+					\texttt{turbo4} & 0.95 & +0.04          \\
+					\midrule
+					\texttt{int8}   & 0.99 & ---            \\
+					\texttt{turbo8} & 1.00 & +0.01          \\
+					\bottomrule
+				\end{tabular}
+			\end{table}
+		\end{column}
+		\begin{column}{0.52\textwidth}
+			\includegraphics[width=\linewidth]{figs/turbo_vs_int.pdf}
+			\vspace{4pt}
+			\footnotesize
+			Rotation redistributes variance across channels $\Rightarrow$
+			better range utilization at coarse quantization.
+			At 8 bits, affine quant is already near-lossless.
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}{Binary Variants at Scale}
+	\framesubtitle{Per-partition calibration fails at lake scale}
+	\begin{columns}[T]
+		\begin{column}{0.48\textwidth}
+			\begin{itemize}
+				\item Tested three post-hoc binary improvements:
+				      \begin{itemize}
+					      \item Per-dim median thresholding
+					      \item Z-score thresholding
+					      \item ITQ-style PCA rotation
+				      \end{itemize}
+				\item \texttt{binary\_med} looks promising on subsample
+				      (recall 0.637 $\to$ 0.659)
+				\item At full corpus: drops to \textbf{0.40} --- worse than
+				      plain sign coding
+				\item Root cause: per-file calibration drift across
+				      geohash/year partitions
+				\item Takeaway: plain global sign coding is the strongest
+				      lake-scale binary baseline
+			\end{itemize}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\includegraphics[width=\linewidth]{figs/binary_variants.pdf}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}{Search Throughput Benchmark}
+	\framesubtitle{Brute-force kNN on 1M vectors (1K queries, $k{=}10$)}
+	\begin{columns}[T]
+		\begin{column}{0.45\textwidth}
+			\begin{table}
+				\centering
+				\footnotesize
+				\begin{tabular}{lrrr}
+					\toprule
+					Method           & CPU          & GPU           & R@10     \\
+					\midrule
+					\texttt{float16} & 60           & \textbf{1322} & 1.00     \\
+					\texttt{int8}    & 49           & \textbf{1140} & 0.99     \\
+					\texttt{int4}    & 48           & \textbf{1371} & 0.90     \\
+					\texttt{int2}    & 48           & \textbf{1157} & 0.61     \\
+					\texttt{binary}  & \textbf{270} & 134           & 1.00$^*$ \\
+					\bottomrule
+					\multicolumn{4}{l}{\tiny $^*$vs.\ binary GT (Hamming)}
+				\end{tabular}
+			\end{table}
+			\vspace{4pt}
+			\footnotesize
+			QPS = queries/sec. GPU = RTX 3090.\\
+			GPU: 22--28$\times$ speedup over FAISS CPU.
+		\end{column}
+		\begin{column}{0.52\textwidth}
+			\includegraphics[width=\linewidth]{figs/search_benchmark.pdf}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+% =============================================================================
+\section{Pipeline}
+% =============================================================================
+
+\begin{frame}{Transformation Pipeline}
+	\framesubtitle{Schema-preserving parallel Parquet processing}
+	\begin{columns}[T]
+		\begin{column}{0.55\textwidth}
+			\begin{itemize}
+				\item Hive-partitioned Parquet: 511 geohash cells $\times$ year/month
+				\item Pipeline reads embedding column, applies quantizer, writes output
+				      preserving directory structure + metadata columns
+				\item Quant params (scale, zero-point, method, bit-width) in
+				      Parquet footer metadata
+				\item Full corpus (7 methods, 8 workers):
+				      \begin{itemize}
+					      \item \textbf{45 min} wall-clock
+					      \item \num{18359} rows/s
+					      \item 107\,MiB/s output throughput
+				      \end{itemize}
+			\end{itemize}
+		\end{column}
+		\begin{column}{0.42\textwidth}
+			\begin{block}{Design Principles}
+				\begin{enumerate}
+					\item No retraining required
+					\item Preserves spatial/temporal metadata
+					\item Downstream-transparent: same partition layout
+					\item Self-describing: metadata in Parquet footer
+				\end{enumerate}
+			\end{block}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+% =============================================================================
+\section{Takeaways}
+% =============================================================================
+
+\begin{frame}{Key Takeaways}
+	\begin{enumerate}
+		\item \textbf{ID $\approx$ 13--17} vs.\ $d = 1024$
+		      $\Rightarrow$ massive redundancy justifies aggressive quantization
+		\item \textbf{Smooth quality--cost frontier}: \texttt{int4} at 91\% recall
+		      / $6.3\times$ compression is the sweet spot
+		\item \textbf{Binary} ($16.5\times$) is viable for coarse-stage candidate
+		      generation in multi-stage retrieval
+		\item \textbf{TurboQuant} rotation helps most at 2--3 bits;
+		      negligible at $\geq$\,8 bits
+		\item \textbf{Per-partition calibration is a trap}: global transforms only
+		      for lake-scale binary
+		\item \textbf{GPU search}: $>$\,1300 QPS on a single RTX 3090 with
+		      dequantized embeddings
+	\end{enumerate}
+
+	\vfill
+	\begin{alertblock}{Practical Guidance}
+		Use \texttt{int8} for near-lossless, \texttt{int4} for balanced,
+		\texttt{binary} for coarse retrieval. Add TurboQuant only at $\leq$\,3 bits.
+	\end{alertblock}
+\end{frame}
+
+\begin{frame}{Limitations \& Future Work}
+	\begin{columns}[T]
+		\begin{column}{0.48\textwidth}
+			\begin{block}{Limitations}
+				\begin{itemize}
+					\item Label-free proxies only --- no task-specific evaluation
+					      (e.g.\ land-cover classification)
+					\item Reservoir-sampled kNN metrics, not full-corpus exact
+					\item Brute-force search only --- no ANN index evaluation
+					      (IVF, HNSW)
+				\end{itemize}
+			\end{block}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\begin{block}{Future Directions}
+				\begin{itemize}
+					\item Labeled downstream evaluation
+					\item ANN index $\times$ low-bit quantization interaction
+					\item Stack post-hoc quantization on learned discrete codes
+					      (FSQ, VQ-VAE)
+					\item Global calibration strategies for binary
+				\end{itemize}
+			\end{block}
+		\end{column}
+	\end{columns}
 \end{frame}
 
 % ===== Thank You =====
 {
-  \setbeamercolor{background canvas}{bg=Primary}
-  \setbeamertemplate{footline}{}
-  \begin{frame}[plain]
-    \vfill
-    \begin{center}
-      {\Large\bfseries\color{white}Thank You}\\[16pt]
-      {\normalsize\color{Accent}Questions?}\\[24pt]
-      {\small\color{white!70}\insertauthor}\\[4pt]
-      {\footnotesize\color{white!50}email@example.com}
-    \end{center}
-    \vfill
-  \end{frame}
+\setbeamercolor{background canvas}{bg=Primary}
+\setbeamertemplate{footline}{}
+\begin{frame}[plain]
+	\vfill
+	\begin{center}
+		{\Large\bfseries\color{white}Thank You}\\[16pt]
+		{\normalsize\color{Accent}Questions?}\\[24pt]
+		{\small\color{white!70}Isaac Corley}\\[4pt]
+		{\footnotesize\color{white!50}isaac.corley@proton.me}\\[12pt]
+		{\footnotesize\color{Accent}\url{https://github.com/isaaccorley/terrabit}}
+	\end{center}
+	\vfill
+\end{frame}
 }
 
 \end{document}
