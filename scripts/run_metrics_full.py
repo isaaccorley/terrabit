@@ -91,20 +91,14 @@ def _dequantize_with_meta(
     q_values: np.ndarray,
     qmeta: dict[str, Any],
 ) -> np.ndarray:
-    dq_input: dict[str, Any] = {
-        "method": qmeta["method"],
-        "quantized": q_values,
-    }
-    if "scale" in qmeta:
-        dq_input["scale"] = np.asarray(qmeta["scale"], dtype=np.float32)
-    if "zero_point" in qmeta:
-        dq_input["zero_point"] = np.asarray(qmeta["zero_point"], dtype=np.float32)
-    if "n_dims" in qmeta:
-        dq_input["n_dims"] = int(qmeta["n_dims"])
-    if "turbo_bits" in qmeta:
-        dq_input["turbo_bits"] = int(qmeta["turbo_bits"])
-    if "turbo_seed" in qmeta:
-        dq_input["turbo_seed"] = int(qmeta["turbo_seed"])
+    dq_input: dict[str, Any] = {"method": qmeta["method"], "quantized": q_values}
+    for k, v in qmeta.items():
+        if k in ("method", "embedding_col"):
+            continue
+        if isinstance(v, list):
+            dq_input[k] = np.asarray(v, dtype=np.float32)
+        else:
+            dq_input[k] = v
     return dequantize(dq_input)
 
 
@@ -161,7 +155,18 @@ def _resolve_methods(quantized_root: Path, methods_arg: str) -> list[str]:
         return [m.strip() for m in methods_arg.split(",") if m.strip()]
 
     discovered = sorted(p.name for p in quantized_root.iterdir() if p.is_dir())
-    preferred = ["binary", "int2", "int3", "int4", "int8", "fp8", "float16"]
+    preferred = [
+        "binary",
+        "binary_med",
+        "binary_zscore",
+        "binary_itq",
+        "int2",
+        "int3",
+        "int4",
+        "int8",
+        "fp8",
+        "float16",
+    ]
     preferred_set = set(preferred)
     ordered = [m for m in preferred if m in discovered]
     ordered.extend(m for m in discovered if m not in preferred_set)

@@ -58,6 +58,9 @@ QUANTIZATION_METHODS = (
     "int3",
     "int2",
     "binary",
+    "binary_med",
+    "binary_zscore",
+    "binary_itq",
     "turbo8",
     "turbo4",
     "turbo3",
@@ -281,9 +284,13 @@ def quantization_sweep(x_orig: np.ndarray) -> list[dict[str, Any]]:
 
         # Compression ratio (bytes)
         orig_bytes = x_orig.nbytes
-        q_bytes = q["quantized"].nbytes
-        if "scale" in q:
-            q_bytes += q["scale"].nbytes + q["zero_point"].nbytes
+        code_bytes = q["quantized"].nbytes
+        param_bytes = sum(
+            int(v.nbytes)
+            for k, v in q.items()
+            if k not in ("quantized", "method") and isinstance(v, np.ndarray)
+        )
+        q_bytes = code_bytes + param_bytes
 
         knn_metrics = _knn_recall_suite(x_orig, x_recon)
         metrics = {
@@ -292,9 +299,12 @@ def quantization_sweep(x_orig: np.ndarray) -> list[dict[str, Any]]:
             "reconstruction_cosine": reconstruction_cosine(x_orig, x_recon),
             **knn_metrics,
             "cosine_sim_corr": cosine_similarity_correlation(x_orig, x_recon, seed=SEED),
-            "compression_ratio": round(orig_bytes / q_bytes, 2),
+            "compression_ratio_code_only": round(orig_bytes / code_bytes, 2),
+            "compression_ratio_total": round(orig_bytes / q_bytes, 2),
             "orig_bytes": orig_bytes,
-            "quantized_bytes": q_bytes,
+            "quantized_bytes": code_bytes,
+            "param_bytes": param_bytes,
+            "total_bytes": q_bytes,
             "elapsed_s": round(elapsed, 2),
         }
         results.append(metrics)
@@ -302,7 +312,7 @@ def quantization_sweep(x_orig: np.ndarray) -> list[dict[str, Any]]:
             f"    recon_cos={metrics['reconstruction_cosine']:.4f}  "
             f"kNN(cos)@10={metrics['knn_recall_10_cosine']:.3f}  "
             f"kNN(euc)@10={metrics['knn_recall_10_euclidean']:.3f}  "
-            f"ratio={metrics['compression_ratio']:.1f}x"
+            f"ratio(code)={metrics['compression_ratio_code_only']:.1f}x"
         )
 
     return results
@@ -370,7 +380,8 @@ def print_quantization_table(results: list[dict[str, Any]]) -> None:
     table.add_column("kNN Cμ", justify="right")
     table.add_column("kNN Eμ", justify="right")
     table.add_column("Cos Corr", justify="right")
-    table.add_column("Ratio", justify="right")
+    table.add_column("Ratio(code)", justify="right")
+    table.add_column("Ratio(total)", justify="right")
     for r in results:
         table.add_row(
             r["method"],
@@ -380,7 +391,8 @@ def print_quantization_table(results: list[dict[str, Any]]) -> None:
             f"{r['knn_recall_mean_cosine']:.3f}",
             f"{r['knn_recall_mean_euclidean']:.3f}",
             f"{r['cosine_sim_corr']:.3f}",
-            f"{r['compression_ratio']:.1f}x",
+            f"{r['compression_ratio_code_only']:.1f}x",
+            f"{r['compression_ratio_total']:.1f}x",
         )
     console.print(table)
 

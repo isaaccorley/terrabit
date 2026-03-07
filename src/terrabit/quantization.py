@@ -17,6 +17,9 @@ QuantizationMethod = Literal[
     "int3",
     "int2",
     "binary",
+    "binary_med",
+    "binary_zscore",
+    "binary_itq",
     "turbo8",
     "turbo4",
     "turbo3",
@@ -268,6 +271,111 @@ def dequantize_binary(
     return 2.0 * bits.astype(np.float32) - 1.0
 
 
+def quantize_binary_med(
+    x: NDArrayF32,
+) -> tuple[np.ndarray[tuple[int, ...], np.dtype[np.uint8]], NDArrayF32]:
+    """Per-dimension median-threshold binary quantization."""
+    threshold = np.median(x, axis=0).astype(np.float32)
+    bits = (x > threshold).astype(np.uint8)
+    pad = (8 - bits.shape[1] % 8) % 8
+    if pad > 0:
+        bits = np.pad(bits, ((0, 0), (0, pad)))
+    return np.packbits(bits, axis=1), threshold
+
+
+def dequantize_binary_med(
+    packed: np.ndarray[tuple[int, ...], np.dtype[np.uint8]],
+    n_dims: int,
+) -> NDArrayF32:
+    """Unpack binary_med codes into +/-1 around learned thresholds."""
+    bits = np.unpackbits(packed, axis=1)[:, :n_dims].astype(np.float32)
+    return np.where(bits > 0, np.float32(1.0), np.float32(-1.0))
+
+
+def quantize_binary_zscore(
+    x: NDArrayF32,
+) -> tuple[np.ndarray[tuple[int, ...], np.dtype[np.uint8]], NDArrayF32, NDArrayF32]:
+    """Z-score per dimension, then sign threshold at zero."""
+    mean = x.mean(axis=0).astype(np.float32)
+    std = x.std(axis=0).astype(np.float32)
+    std = np.where(std > 1e-8, std, np.float32(1.0))
+    z = (x - mean) / std
+    bits = (z > 0).astype(np.uint8)
+    pad = (8 - bits.shape[1] % 8) % 8
+    if pad > 0:
+        bits = np.pad(bits, ((0, 0), (0, pad)))
+    return np.packbits(bits, axis=1), mean, std
+
+
+def dequantize_binary_zscore(
+    packed: np.ndarray[tuple[int, ...], np.dtype[np.uint8]],
+    n_dims: int,
+    mean: NDArrayF32,
+    std: NDArrayF32,
+) -> NDArrayF32:
+    """Map unpacked bits back to standardized +/-1 and un-normalize."""
+    bits = np.unpackbits(packed, axis=1)[:, :n_dims]
+    z = np.where(bits > 0, np.float32(1.0), np.float32(-1.0))
+    return z.astype(np.float32) * std + mean
+
+
+def _pca_whiten_full(x: NDArrayF32) -> tuple[NDArrayF32, NDArrayF32, NDArrayF32, NDArrayF32]:
+    """Return whitened coordinates and PCA params for full-dimensional transform."""
+    mean = x.mean(axis=0).astype(np.float32)
+    xc = x - mean
+    cov = np.cov(xc, rowvar=False).astype(np.float32)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    order = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[order]
+    components = eigvecs[:, order].astype(np.float32)
+    std = np.sqrt(np.clip(eigvals, 1e-8, None)).astype(np.float32)
+    z = (xc @ components) / std
+    return z.astype(np.float32), mean, components, std
+
+
+def quantize_binary_itq(
+    x: NDArrayF32,
+    *,
+    seed: int = 0,
+    n_iter: int = 20,
+) -> tuple[np.ndarray[tuple[int, ...], np.dtype[np.uint8]], NDArrayF32, NDArrayF32, NDArrayF32, NDArrayF32]:
+    """ITQ-style binary coding: PCA whitening + learned orthogonal rotation + sign."""
+    z, mean, components, std = _pca_whiten_full(x)
+    d = z.shape[1]
+
+    rng = np.random.default_rng(seed)
+    r0, _ = np.linalg.qr(rng.standard_normal((d, d)).astype(np.float32))
+    rotation = r0.astype(np.float32)
+
+    for _ in range(n_iter):
+        b = np.where(z @ rotation >= 0, np.float32(1.0), np.float32(-1.0))
+        u, _s, vt = np.linalg.svd(b.T @ z, full_matrices=False)
+        rotation = (vt.T @ u.T).astype(np.float32)
+
+    bits = ((z @ rotation) > 0).astype(np.uint8)
+    pad = (8 - bits.shape[1] % 8) % 8
+    if pad > 0:
+        bits = np.pad(bits, ((0, 0), (0, pad)))
+    packed = np.packbits(bits, axis=1)
+    return packed, mean, components, std, rotation
+
+
+def dequantize_binary_itq(
+    packed: np.ndarray[tuple[int, ...], np.dtype[np.uint8]],
+    n_dims: int,
+    mean: NDArrayF32,
+    components: NDArrayF32,
+    std: NDArrayF32,
+    rotation: NDArrayF32,
+) -> NDArrayF32:
+    """Approximate inverse for ITQ-style codes."""
+    bits = np.unpackbits(packed, axis=1)[:, :n_dims]
+    b = np.where(bits > 0, np.float32(1.0), np.float32(-1.0)).astype(np.float32)
+    z_hat = b @ rotation.T
+    x_pca = z_hat * std
+    return (x_pca @ components.T + mean).astype(np.float32)
+
+
 _ORTHO_MATRIX_CACHE: dict[tuple[int, int], np.ndarray] = {}
 
 
@@ -382,6 +490,34 @@ def quantize(
             "n_dims": x.shape[1],
             "method": "binary",
         }
+    if method == "binary_med":
+        q, threshold = quantize_binary_med(x)
+        return {
+            "quantized": q,
+            "n_dims": x.shape[1],
+            "threshold": threshold,
+            "method": "binary_med",
+        }
+    if method == "binary_zscore":
+        q, mean, std = quantize_binary_zscore(x)
+        return {
+            "quantized": q,
+            "n_dims": x.shape[1],
+            "mean": mean,
+            "std": std,
+            "method": "binary_zscore",
+        }
+    if method == "binary_itq":
+        q, mean, components, std, rotation = quantize_binary_itq(x)
+        return {
+            "quantized": q,
+            "n_dims": x.shape[1],
+            "mean": mean,
+            "components": components,
+            "std": std,
+            "rotation": rotation,
+            "method": "binary_itq",
+        }
     if method in ("turbo8", "turbo4", "turbo3", "turbo2"):
         bits = int(method[5:])
         q, scale, zp, n_dims, seed = quantize_turbo(x, bits=bits)
@@ -430,6 +566,24 @@ def dequantize(result: dict[str, Any]) -> NDArrayF32:
         )
     if method == "binary":
         return dequantize_binary(result["quantized"], result["n_dims"])
+    if method == "binary_med":
+        return dequantize_binary_med(result["quantized"], result["n_dims"])
+    if method == "binary_zscore":
+        return dequantize_binary_zscore(
+            result["quantized"],
+            result["n_dims"],
+            result["mean"],
+            result["std"],
+        )
+    if method == "binary_itq":
+        return dequantize_binary_itq(
+            result["quantized"],
+            result["n_dims"],
+            result["mean"],
+            result["components"],
+            result["std"],
+            result["rotation"],
+        )
     if method in ("turbo8", "turbo4", "turbo3", "turbo2"):
         return dequantize_turbo(
             result["quantized"],

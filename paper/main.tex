@@ -39,7 +39,7 @@
   Recent systems distribute global embedding fields at \texttt{int8} precision, but the quality--cost trade-off below 8 bits remains unexplored for remote sensing embeddings.
   We present \method{}, a post-hoc quantization study spanning \texttt{float16} through 1-bit \texttt{binary} on \num{49785116} real 1024D embeddings (\textit{183\,GiB}), evaluated with label-free neighborhood-preservation metrics grounded in intrinsic-dimension analysis.
   \texttt{Int4} retains 91\% kNN recall at $6.3\times$ compression; \texttt{binary} achieves $16.5\times$ compression with 65\% recall, sufficient for coarse-stage candidate generation.
-  We additionally benchmark TurboQuant~\citep{lou2024turbo}, finding that its random orthogonal pre-rotation \emph{hurts} rather than helps: recall saturates near 0.61 regardless of bit-width, revealing that the rotation---not quantization noise---is the bottleneck for geospatial ViT embeddings.
+  We additionally benchmark TurboQuant~\citep{zandieh2025turboquant}, finding that its random orthogonal pre-rotation \emph{hurts} rather than helps: recall saturates near 0.61 regardless of bit-width, revealing that the rotation---not quantization noise---is the bottleneck for geospatial ViT embeddings.
 \end{abstract}
 
 \section{Introduction}
@@ -89,7 +89,8 @@ AlphaEarth~\citep{brown2025alphaearth} and TESSERA~\citep{feng2025tessera} both 
 Product quantization~\citep{jegou2011pq}, learned anisotropic quantization~\citep{guo2020scann}, and locality-sensitive hashing~\citep{indyk1998lsh} compress embeddings for approximate nearest-neighbor search.
 FAISS~\citep{johnson2021faiss} implements these at billion scale.
 LLM.\texttt{int8}()~\citep{dettmers2022int8} demonstrates that aggressive quantization preserves model quality in language; Matryoshka representations~\citep{kusupati2022matryoshka} show that embedding dimensions can be truncated with graceful degradation.
-TurboQuant~\citep{lou2024turbo} applies a random orthogonal pre-rotation before symmetric quantization to reduce inter-channel variance disparity in LLM weight matrices.
+TurboQuant~\citep{zandieh2025turboquant} applies a random orthogonal pre-rotation before symmetric quantization to approach rate-distortion bounds in online vector quantization.
+For binary coding, prior work spans angular quantization for cosine retrieval~\citep{gong2012angular}, deep visual-semantic quantization with learned codebooks~\citep{cao2017dvsq}, and autoencoder-based near-lossless binarization in NLP~\citep{tissier2019nearlossless}.
 Orthogonally, learned codebook methods such as FSQ~\citep{mentzer2023fsq} replace VQ-VAE codebook lookup with per-dimension scalar rounding, enabling end-to-end discrete compression without codebook collapse---an approach recently applied to geospatial embeddings by ESD~\citep{chen2026esd}.
 
 \paragraph{Positioning.}
@@ -117,7 +118,7 @@ We evaluate seven post-hoc methods spanning 16 bits to 1 bit:
 \texttt{int}$b$ for $b \in \{8,4,3,2\}$ (per-dimension affine quantization with stored scale/zero-point vectors, followed by fixed-width bit packing for $b < 8$); and
 \texttt{binary} (sign-bit encoding, $\operatorname{sign}(x_i) \in \{0,1\}^d$, packed to $d/8$ bytes, supporting Hamming-distance search~\citep{wang2018binary}).
 
-We additionally evaluate \textbf{TurboQuant}~\citep{lou2024turbo} at $b \in \{2,3,4,8\}$ bits (\texttt{turbo}$b$).
+We additionally evaluate \textbf{TurboQuant}~\citep{zandieh2025turboquant} at $b \in \{2,3,4,8\}$ bits (\texttt{turbo}$b$).
 TurboQuant applies a fixed random orthogonal rotation $R \in \mathbb{R}^{d \times d}$ (sampled once from a Haar-distributed ensemble via QR decomposition) before symmetric affine quantization: $\hat{x}_i = R^\top \mathcal{Q}_b(R x_i)$.
 The rotation is intended to reduce inter-channel variance disparity, improving per-dimension range utilization.
 
@@ -195,7 +196,7 @@ ID estimation on a \num{10000}-sample subset yields MLE $\hat{d} = 17.0$, TwoNN 
 
 \begin{table}[t]
   \centering
-  \caption{\textbf{TurboQuant~\citep{lou2024turbo} vs.\ standard \texttt{int}$b$ on \num{49785116} embeddings.}
+  \caption{\textbf{TurboQuant~\citep{zandieh2025turboquant} vs.\ standard \texttt{int}$b$ on \num{49785116} embeddings.}
     Compression ratios are near-identical; kNN recall is consistently lower for turbo methods.
   Recall saturates across turbo bit-widths, indicating the rotation dominates the error budget.}
   \label{tab:turbo}
@@ -236,7 +237,7 @@ Table~\ref{tab:quality} summarizes quality across all methods.
 
 \paragraph{TurboQuant analysis.}
 
-Table~\ref{tab:turbo} and Figure~\ref{fig:turbo} compare TurboQuant~\citep{lou2024turbo} against standard \texttt{int}$b$ at matched bit-widths.
+Table~\ref{tab:turbo} and Figure~\ref{fig:turbo} compare TurboQuant~\citep{zandieh2025turboquant} against standard \texttt{int}$b$ at matched bit-widths.
 The headline finding is two-fold: turbo methods are Pareto-dominated at every operating point, \emph{and} their recall does not improve with additional bits.
 
 \textbf{Consistent underperformance.}
@@ -258,11 +259,37 @@ This sounds beneficial for range utilization, but has two adverse effects here.
 First, the high-variance principal directions---which carry the bulk of the geometric signal---are dispersed across all output dimensions at weight $1/\sqrt{d}$.
 At low bit-width, rounding error on each output dimension propagates uniformly back into all principal components, whereas unrotated quantization concentrates error on low-variance, low-signal dimensions.
 Second, the full-rank $d{\times}d$ rotation is maximally mixing: every reconstructed dimension depends on all 1024 quantization decisions, so errors compound rather than stay localized.
-TurboQuant was motivated by LLM weight matrices where per-channel variance spans orders of magnitude and rotation genuinely equalizes the quantization task~\citep{lou2024turbo}; geospatial ViT embeddings appear far more isotropic (ID $\approx 13$--$17$ across a 1024D ambient space), so the calibration advantage of rotation is minimal while its mixing cost is substantial.
+TurboQuant was motivated by LLM weight matrices where per-channel variance spans orders of magnitude and rotation genuinely equalizes the quantization task~\citep{zandieh2025turboquant}; geospatial ViT embeddings appear far more isotropic (ID $\approx 13$--$17$ across a 1024D ambient space), so the calibration advantage of rotation is minimal while its mixing cost is substantial.
 
 \textbf{Takeaway.}
 For geospatial embedding lakes, plain per-dimension affine quantization dominates at every bit-width.
 Rotation-based methods should not be assumed to transfer from LLM weights to embedding corpora: the benefit depends on whether channel variance is the binding constraint, which it is not here.
+
+\paragraph{Improving binarization without retraining.}
+
+To test whether binary quality can be improved in the strict post-hoc regime, we evaluate three lightweight variants: per-dimension median thresholding (\texttt{binary\_med}), z-score thresholding (\texttt{binary\_zscore}), and an ITQ-style PCA-whitened rotation (\texttt{binary\_itq}).
+We run \texttt{binary\_med} and \texttt{binary\_zscore} on the full corpus; \texttt{binary\_itq} is evaluated on the subsample only because its learned full-dimensional transform introduces large per-file metadata overhead in the current Parquet format.
+On a \num{20000}-embedding subsample, \texttt{binary\_med} appears promising, improving cosine recall@10 from 0.637 to 0.659 at the same $32\times$ code-only compression.
+However, Figure~\ref{fig:binary-variants} shows that this gain does \emph{not} survive at corpus scale: on the full
+
+This failure mode is informative.
+Both variants estimate thresholds independently within each Parquet partition, so the same semantic region of embedding space is binarized with different decision boundaries across geohash/year shards.
+That per-file calibration drift is mostly invisible on a local subsample but becomes destructive when nearest neighbors span many partitions.
+The result also reinforces a broader point from angular-hashing work~\citep{gong2012angular}: preserving rank neighborhoods in binary space depends on consistent angular partitions, not merely on improving local reconstruction statistics.
+Indeed, \texttt{binary\_zscore} attains very high reconstruction cosine (0.925) yet very poor recall@10 (0.310), showing that reconstruction fidelity is a poor proxy for binary retrieval quality.
+
+Practically, the best-performing post-hoc binary method in our lake-scale setting is still the simplest one: global sign coding with no per-file calibration.
+This suggests that future binary improvements should use \emph{global} calibration or shared transforms rather than independent per-partition thresholds.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/binary_variants.pdf}
+  \caption{\textbf{Binary variants on subsample vs.\ full corpus.}
+    \texttt{binary\_med} improves over plain sign coding on a \num{20000}-embedding subsample, but the advantage reverses on the full
+    This exposes a scale-sensitive failure mode: per-file threshold calibration does not transfer across partitions.
+  Plain \texttt{binary} remains the strongest lake-scale binary baseline.}
+  \label{fig:binary-variants}
+\end{figure}
 
 \paragraph{Storage and throughput.}
 
@@ -272,10 +299,11 @@ The full pipeline (all 7 methods, 8 workers) processes the entire corpus in \SI{
 
 \paragraph{Discussion.}
 
-Three findings emerge.
+Four findings emerge.
 First, ID estimates of 13--20 (vs.\ ambient $d{=}1024$) explain why aggressive quantization does not immediately collapse neighborhood structure: most per-dimension variance is redundant for local geometry.
 Second, the quality decline from \texttt{int8} to \texttt{int2} is gradual (Figure~\ref{fig:knn-k}), enabling practitioners to select operating points based on their recall requirements versus storage budget.
 Third, \texttt{binary} quantization is not quality-preserving in a strict sense, but its $16.5\times$ compression and compatibility with Hamming-distance search make it attractive for first-pass candidate generation in multi-stage retrieval pipelines~\citep{wang2018binary}.
+Fourth, post-hoc binary refinements that look promising on small subsamples can fail at lake scale (Figure~\ref{fig:binary-variants}); robustness across partitions matters more than local reconstruction quality, so future work should prefer shared/global calibration over per-file binary transforms.
 
 \paragraph{Retrieval benchmark.}
 

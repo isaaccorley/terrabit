@@ -37,6 +37,9 @@ ALL_METHODS: tuple[QuantizationMethod, ...] = (
     "int3",
     "int2",
     "binary",
+    "binary_med",
+    "binary_zscore",
+    "binary_itq",
     "turbo8",
     "turbo4",
     "turbo3",
@@ -136,16 +139,15 @@ def _process_one_file(
             "embedding_col": embedding_col,
             "n_dims": int(quantized.get("n_dims", x.shape[1])),
         }
-        if "scale" in quantized:
-            quant_meta["scale"] = np.asarray(quantized["scale"], dtype=np.float32).tolist()
-        if "zero_point" in quantized:
-            quant_meta["zero_point"] = np.asarray(
-                quantized["zero_point"], dtype=np.float32
-            ).tolist()
-        if "turbo_bits" in quantized:
-            quant_meta["turbo_bits"] = int(quantized["turbo_bits"])
-        if "turbo_seed" in quantized:
-            quant_meta["turbo_seed"] = int(quantized["turbo_seed"])
+        for k, v in quantized.items():
+            if k in ("quantized", "method"):
+                continue
+            if isinstance(v, np.ndarray):
+                quant_meta[k] = np.asarray(v, dtype=np.float32).tolist()
+            elif isinstance(v, (np.integer, int)):
+                quant_meta[k] = int(v)
+            elif isinstance(v, (np.floating, float)):
+                quant_meta[k] = float(v)
 
         schema_meta = dict(quantized_table.schema.metadata or {})
         schema_meta[b"quantization"] = json.dumps(quant_meta, separators=(",", ":")).encode("utf-8")

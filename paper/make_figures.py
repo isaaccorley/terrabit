@@ -22,6 +22,18 @@ with open(RESULTS_DIR / "report_metrics_batched_full.json") as f:
 with open(RESULTS_DIR / "report_quant_10k.json") as f:
     quant10k = json.load(f)
 
+binary_baselines_path = RESULTS_DIR / "report_binary_baselines_20k.json"
+binary_baselines = None
+if binary_baselines_path.exists():
+    with open(binary_baselines_path) as f:
+        binary_baselines = json.load(f)
+
+binary_full_path = RESULTS_DIR / "report_metrics_batched_binary_variants_full.json"
+binary_full = None
+if binary_full_path.exists():
+    with open(binary_full_path) as f:
+        binary_full = json.load(f)
+
 with open(RESULTS_DIR / "report_metrics_batched_turbo_full.json") as f:
     turbo_full = json.load(f)
 
@@ -524,6 +536,88 @@ plt.tight_layout()
 fig.savefig(FIG_DIR / "turbo_vs_int.pdf")
 plt.close()
 print("Saved turbo_vs_int.pdf")
+
+
+# =====================================================================
+# Figure 7: Binary variants -- sample vs full transfer
+# =====================================================================
+if binary_baselines is not None and binary_full is not None:
+    rows_sample = {r["method"]: r for r in binary_baselines["results"]}
+    rows_full = {r["method"]: r for r in binary_full["results"]}
+    order = ["binary", "binary_med", "binary_zscore"]
+    labels = ["binary", "binary_med", "binary_z"]
+    sample_vals = [rows_sample[m]["knn_recall_10_cosine"] for m in order]
+    full_vals = [rows_full[m]["knn_recall_10_cosine_sampled"] for m in order]
+
+    fig, ax = plt.subplots(figsize=(5.8, 2.9))
+    x = np.arange(len(order))
+    w = 0.34
+
+    bars_sample = ax.bar(
+        x - w / 2,
+        sample_vals,
+        w,
+        color="#b998f7",
+        edgecolor="white",
+        linewidth=0.7,
+        alpha=0.9,
+        label="20k subsample",
+    )
+    bars_full = ax.bar(
+        x + w / 2,
+        full_vals,
+        w,
+        color="#2d1157",
+        edgecolor="white",
+        linewidth=0.7,
+        alpha=0.9,
+        label="full dataset",
+    )
+
+    for bars in (bars_sample, bars_full):
+        for bar in bars:
+            h = bar.get_height()
+            ax.text(
+                float(bar.get_x() + bar.get_width() / 2),
+                h + 0.012,
+                f"{h:.3f}",
+                ha="center",
+                fontsize=7,
+                color="#444",
+            )
+
+    ax.annotate(
+        "looks promising\non subsample",
+        xy=(x[1] - w / 2, sample_vals[1]),
+        xytext=(0.7, 0.78),
+        fontsize=7,
+        color="#536dfe",
+        arrowprops=dict(arrowstyle="->", color="#536dfe", lw=0.9),
+        ha="center",
+    )
+    ax.annotate(
+        "fails at lake scale\n(per-file calibration drift)",
+        xy=(x[1] + w / 2, full_vals[1]),
+        xytext=(1.9, 0.57),
+        fontsize=7,
+        color="#ff1867",
+        arrowprops=dict(arrowstyle="->", color="#ff1867", lw=0.9),
+        ha="center",
+    )
+
+    ax.set_ylabel("kNN Recall@10 (Cosine)")
+    ax.set_xlabel("Method")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylim(0.2, 0.9)
+    ax.grid(True, axis="y", alpha=0.2, linewidth=0.4)
+    ax.legend(fontsize=8, framealpha=0.85, edgecolor="none", loc="upper right")
+    plt.tight_layout()
+    fig.savefig(FIG_DIR / "binary_variants.pdf")
+    plt.close()
+    print("Saved binary_variants.pdf")
+else:
+    print("Skipping binary_variants.pdf (binary baseline reports not found)")
 
 
 print("\nAll figures generated.")
