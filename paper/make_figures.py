@@ -37,25 +37,48 @@ if binary_full_path.exists():
 with open(RESULTS_DIR / "report_metrics_batched_turbo_full.json") as f:
     turbo_full = json.load(f)
 
-# ---------- paper palette ----------
-ACCENT = "#0f766e"
+# ---------- unified paper palette ----------
+PRIMARY = "#2d1157"  # dark purple — main series / emphasis
+ACCENT = "#0097a7"  # teal — secondary series
+LIGHT = "#b998f7"  # light purple — fills, secondary bars
+NEUTRAL = "#666666"  # annotations, value labels
+ERROR_CLR = "#999999"  # error bar color
 
+# Purple gradient for storage bar chart (darkest → lightest)
+_purple_shades = [
+    "#1a0533",  # original (fp32) - deepest
+    "#2d1157",  # float16
+    "#421d7a",  # fp8
+    "#572a9e",  # int8
+    "#6c37c2",  # int4
+    "#8247e0",  # int3
+    "#9d6ef0",  # int2
+    "#b998f7",  # binary - lightest
+]
+
+# ---------- global rcParams ----------
 plt.rcParams.update(
     {
         "font.family": "serif",
         "font.size": 9,
         "axes.linewidth": 0.6,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
         "xtick.major.width": 0.5,
         "ytick.major.width": 0.5,
+        "grid.alpha": 0.15,
+        "grid.linewidth": 0.4,
         "figure.dpi": 300,
         "savefig.bbox": "tight",
-        "savefig.pad_inches": 0.1,
+        "savefig.pad_inches": 0.08,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
         "lines.linewidth": 1.6,
         "lines.markersize": 6,
     }
 )
 
-# Define ordered methods + compression ratios
+# ---------- constants ----------
 METHOD_ORDER = ["float16", "fp8", "int8", "int4", "int3", "int2", "binary"]
 COMPRESSION = {
     "float16": 1.86,
@@ -86,16 +109,6 @@ STORAGE_GIB = {
     "binary": 11.07,
 }
 
-COLORS = {
-    "float16": "#0097a7",  # deep teal
-    "fp8": "#00796b",  # dark emerald
-    "int8": "#536dfe",  # indigo blue
-    "int4": "#7c4dff",  # vivid purple
-    "int3": "#aa00ff",  # violet
-    "int2": "#d500f9",  # magenta
-    "binary": "#ff1867",  # hot pink
-}
-
 # Build lookup from full results
 metrics = {r["method"]: r for r in full["results"]}
 
@@ -105,34 +118,34 @@ metrics = {r["method"]: r for r in full["results"]}
 # =====================================================================
 fig, ax = plt.subplots(figsize=(5.5, 3.0))
 
-# Per-method label offsets (dx, dy) in offset-points to avoid overlap
+# Per-method label offsets (dx, dy) in offset-points
 LABEL_OFFSETS = {
-    "float16": (0, 8),  # above
-    "fp8": (0, -11),  # below
-    "int8": (10, 7),  # up-right
+    "float16": (0, 8),
+    "fp8": (0, -12),
+    "int8": (10, 7),
     "int4": (10, 5),
     "int3": (10, 5),
-    "int2": (0, -11),
-    "binary": (-10, 5),  # left-above, keep inside plot
+    "int2": (0, -12),
+    "binary": (-10, 5),
 }
 
 xs = [COMPRESSION[m] for m in METHOD_ORDER]
 ys_cos = [metrics[m]["knn_recall_10_cosine_sampled"] for m in METHOD_ORDER]
 ys_euc = [metrics[m]["knn_recall_10_euclidean_sampled"] for m in METHOD_ORDER]
 
-ax.plot(xs, ys_cos, "o-", color="#2d1157", label="Cosine", zorder=2, markersize=5, linewidth=1.1)
+ax.plot(xs, ys_cos, "o-", color=PRIMARY, label="Cosine", zorder=2, markersize=5, linewidth=1.1)
 ax.plot(
     xs,
     ys_euc,
     "s--",
-    color="#0097a7",
+    color=ACCENT,
     label="Euclidean",
     zorder=2,
     markersize=4.5,
     linewidth=1.1,
 )
 
-# Annotate methods once at the midpoint between both curves.
+# Annotate methods at the midpoint between curves — all NEUTRAL
 for m, x, yc, ye in zip(METHOD_ORDER, xs, ys_cos, ys_euc, strict=False):
     y_mid = (yc + ye) / 2
     dx, dy = LABEL_OFFSETS[m]
@@ -143,35 +156,34 @@ for m, x, yc, ye in zip(METHOD_ORDER, xs, ys_cos, ys_euc, strict=False):
         xytext=(dx, dy),
         fontsize=6.5,
         ha="center",
-        color=COLORS[m],
+        color=NEUTRAL,
         fontweight="bold",
     )
 
-# Int8 references for both metrics.
+# Int8 reference lines
 ax.axhline(
     y=metrics["int8"]["knn_recall_10_cosine_sampled"],
-    color="#2d1157",
+    color=PRIMARY,
     linestyle=":",
-    alpha=0.35,
+    alpha=0.30,
     linewidth=0.8,
     zorder=1,
 )
 ax.axhline(
     y=metrics["int8"]["knn_recall_10_euclidean_sampled"],
-    color="#0097a7",
+    color=ACCENT,
     linestyle=":",
-    alpha=0.35,
+    alpha=0.30,
     linewidth=0.8,
     zorder=1,
 )
 
 ax.set_xlabel("Compression Ratio (x)")
 ax.set_ylabel("Recall@10")
-ax.set_title("kNN Recall@10: Cosine and Euclidean", fontsize=9)
 ax.set_xlim(-0.5, 18)
-ax.set_ylim(0.45, 1.10)
+ax.set_ylim(0.45, 1.05)
 ax.set_yticks([0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-ax.grid(True, alpha=0.2, linewidth=0.4)
+ax.grid(True, alpha=0.15, linewidth=0.4)
 ax.legend(fontsize=8, framealpha=0.8, edgecolor="none")
 
 plt.tight_layout()
@@ -186,23 +198,11 @@ print("Saved pareto.pdf")
 fig, ax = plt.subplots(figsize=(5.5, 2.2))
 methods_bar = ["original"] + METHOD_ORDER
 sizes = [STORAGE_GIB[m] for m in methods_bar]
-# Purple gradient: darkest for largest -> lightest for smallest
-_purple_shades = [
-    "#1a0533",  # original (fp32) - deepest
-    "#2d1157",  # float16
-    "#421d7a",  # fp8
-    "#572a9e",  # int8
-    "#6c37c2",  # int4
-    "#8247e0",  # int3
-    "#9d6ef0",  # int2
-    "#b998f7",  # binary - lightest
-]
-colors_bar = _purple_shades
 
 bars = ax.barh(
     range(len(methods_bar)),
     sizes,
-    color=colors_bar,
+    color=_purple_shades,
     edgecolor="white",
     linewidth=0.8,
     height=0.65,
@@ -214,11 +214,8 @@ ax.set_yticklabels(
     fontsize=8,
 )
 ax.set_xlabel("Storage (GiB)")
-ax.set_title("Corpus Storage Footprint (49.8M embeddings, d=1024)", fontsize=9, fontweight="bold")
 ax.invert_yaxis()
-ax.grid(True, axis="x", alpha=0.2, linewidth=0.4)
-
-# Extend x to fit the fp32 value label
+ax.grid(True, axis="x", alpha=0.15, linewidth=0.4)
 ax.set_xlim(0, 200)
 
 for bar, size in zip(bars, sizes, strict=False):
@@ -228,7 +225,7 @@ for bar, size in zip(bars, sizes, strict=False):
         f"{size:.1f}",
         va="center",
         fontsize=7,
-        color="#555",
+        color=NEUTRAL,
     )
 
 plt.tight_layout()
@@ -241,42 +238,61 @@ print("Saved storage.pdf")
 # Figure 3: Full kNN Recall at k=10,25,50 (cosine)
 # =====================================================================
 fig, ax = plt.subplots(figsize=(5.5, 2.5))
-K_COLORS = {10: "#2d1157", 25: "#7c4dff", 50: "#b998f7"}
+
+# Three purple shades + varying markers for colorblind safety
+K_STYLE: dict[int, dict] = {
+    10: {"color": PRIMARY, "marker": "o", "markersize": 5.5, "linewidth": 1.5},
+    25: {"color": "#7c4dff", "marker": "s", "markersize": 4.5, "linewidth": 1.2},
+    50: {"color": LIGHT, "marker": "D", "markersize": 4.0, "linewidth": 1.0},
+}
+
 ks = [10, 25, 50]
 for k in ks:
     key = f"knn_recall_{k}_cosine_sampled"
     vals = [metrics[m][key] for m in METHOD_ORDER]
     compressions = [COMPRESSION[m] for m in METHOD_ORDER]
+    style = K_STYLE[k]
     ax.plot(
         compressions,
         vals,
-        "o-",
+        marker=style["marker"],
+        linestyle="-",
         label=f"k={k}",
-        markersize=4,
-        linewidth=1.3,
-        color=K_COLORS[k],
+        markersize=style["markersize"],
+        linewidth=style["linewidth"],
+        color=style["color"],
         alpha=0.9,
     )
 
 ax.set_xlabel("Compression Ratio (x)")
 ax.set_ylabel("kNN Recall (Cosine)")
-ax.set_title("Neighborhood Preservation Across k", fontsize=9, fontweight="bold")
-ax.legend(fontsize=8, framealpha=0.8, edgecolor="none", prop={"weight": "bold"})
+ax.legend(fontsize=8, framealpha=0.8, edgecolor="none")
 ax.set_ylim(0.45, 1.05)
-ax.grid(True, alpha=0.2, linewidth=0.4)
+ax.grid(True, alpha=0.15, linewidth=0.4)
 
-# Annotate method names along the k=10 curve
+# Selective labeling on the k=10 curve — skip int3 to avoid overlap
 k10_key = "knn_recall_10_cosine_sampled"
-for m in METHOD_ORDER:
+LABEL_METHODS_K = ["float16", "fp8", "int8", "int4", "int2", "binary"]
+K_LABEL_OFFSETS = {
+    "float16": (0, 7),
+    "fp8": (12, -12),
+    "int8": (-12, 7),
+    "int4": (0, -10),
+    "int2": (0, -10),
+    "binary": (0, 7),
+}
+
+for m in LABEL_METHODS_K:
     cx, cy = COMPRESSION[m], metrics[m][k10_key]
+    dx, dy = K_LABEL_OFFSETS[m]
     ax.annotate(
         m,
         (cx, cy),
         textcoords="offset points",
-        xytext=(0, -9),
-        fontsize=7,
+        xytext=(dx, dy),
+        fontsize=6.5,
         ha="center",
-        color="#444",
+        color=NEUTRAL,
         fontweight="bold",
     )
 
@@ -296,32 +312,31 @@ raw = id_data["raw"]
 ests = ["MLE", "TwoNN", "LPCA"]
 vals = [raw["id_mle"], raw["id_twonn"], raw["id_lpca"]]
 stds = [raw["id_mle_std"], raw["id_twonn_std"], raw["id_lpca_std"]]
-bar_colors = ["#0097a7", "#7c4dff", "#ff1867"]
 
+# Monochrome — all PRIMARY
 bars = ax.bar(
     ests,
     vals,
     yerr=stds,
-    color=bar_colors,
+    color=PRIMARY,
     edgecolor="white",
     linewidth=0.8,
     width=0.5,
     capsize=3,
-    error_kw={"ecolor": "#999", "linewidth": 0.8},
+    error_kw={"ecolor": ERROR_CLR, "linewidth": 0.8},
     alpha=0.88,
 )
 ax.set_ylabel("Intrinsic Dimension")
-ax.set_title("ID Estimates (d=1024 embeddings)", fontsize=9, fontweight="bold")
-ax.set_ylim(0, max(vals) * 1.4)
+ax.set_ylim(0, max(vals) * 1.25)
 
 for bar, v in zip(bars, vals, strict=False):
     ax.text(
         bar.get_x() + bar.get_width() / 2,
-        bar.get_height() + 0.6,
+        bar.get_height() + 0.5,
         f"{v:.1f}",
         ha="center",
         fontsize=7,
-        color="#555",
+        color=NEUTRAL,
     )
 
 ax.text(
@@ -343,9 +358,8 @@ print("Saved intrinsic_dim.pdf")
 
 
 # =====================================================================
-# Figure 5: Search Benchmark - QPS (FAISS CPU vs GPU) + Recall@10
+# Figure 5: Search Benchmark — QPS (FAISS CPU vs GPU) + Recall@10
 # =====================================================================
-# Load search results
 faiss_path = RESULTS_DIR / "faiss_results_1M.json"
 gpu_path = RESULTS_DIR / "gpu_results_1M.json"
 
@@ -355,11 +369,11 @@ if faiss_path.exists() and gpu_path.exists():
     with open(gpu_path) as f:
         gpu_res = json.load(f)
 
-    # Map method -> results for our 7 quantization methods
     _faiss_exp = faiss_res["experiments"]
     _gpu_exp = gpu_res["experiments"]
 
-    SEARCH_METHODS = ["binary", "int2", "int3", "int4", "fp8", "int8", "float16"]
+    # Order: float16 → binary (matches other figures)
+    SEARCH_METHODS = list(reversed(["binary", "int2", "int3", "int4", "fp8", "int8", "float16"]))
     FAISS_KEY = {
         "binary": "binary_hamming",
         "int2": "int2_flat",
@@ -384,7 +398,7 @@ if faiss_path.exists() and gpu_path.exists():
         cpu_qps,
         w,
         label="FAISS CPU",
-        color="#b998f7",
+        color=LIGHT,
         edgecolor="white",
         linewidth=0.6,
         alpha=0.88,
@@ -394,7 +408,7 @@ if faiss_path.exists() and gpu_path.exists():
         gpu_qps,
         w,
         label="GPU (RTX 3090)",
-        color="#2d1157",
+        color=PRIMARY,
         edgecolor="white",
         linewidth=0.6,
         alpha=0.88,
@@ -406,7 +420,6 @@ if faiss_path.exists() and gpu_path.exists():
     ax1.set_yscale("log")
     ax1.set_ylim(10, 5000)
 
-    # Add QPS labels
     for bars in [bars_cpu, bars_gpu]:
         for bar in bars:
             h = bar.get_height()
@@ -416,19 +429,21 @@ if faiss_path.exists() and gpu_path.exists():
                 f"{h:.0f}",
                 ha="center",
                 fontsize=6,
-                color="#555",
+                color=NEUTRAL,
             )
 
-    # Recall on twin axis
+    # Recall on twin axis — re-enable right spine for it
     ax2 = ax1.twinx()
+    ax2.spines["right"].set_visible(True)
+    ax2.spines["right"].set_linewidth(0.6)
     ax2.plot(
-        x, recall10, "D-", color="#0097a7", markersize=5, linewidth=1.3, label="Recall@10", zorder=5
+        x, recall10, "D-", color=ACCENT, markersize=5, linewidth=1.3, label="Recall@10", zorder=5
     )
-    ax2.set_ylabel("Recall@10", color="#0097a7")
+    ax2.set_ylabel("Recall@10", color=ACCENT)
     ax2.set_ylim(0.3, 1.08)
-    ax2.tick_params(axis="y", labelcolor="#0097a7")
+    ax2.tick_params(axis="y", labelcolor=ACCENT)
 
-    # Combined legend — bottom right, away from the tall bars
+    # Combined legend
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(
@@ -440,10 +455,7 @@ if faiss_path.exists() and gpu_path.exists():
         edgecolor="none",
     )
 
-    ax1.set_title(
-        "Search Throughput vs. Recall (1M corpus, 1K queries, k=10)", fontsize=9, fontweight="bold"
-    )
-    ax1.grid(True, axis="y", alpha=0.2, linewidth=0.4)
+    ax1.grid(True, axis="y", alpha=0.15, linewidth=0.4)
     plt.tight_layout()
     fig.savefig(FIG_DIR / "search_benchmark.pdf")
     plt.close()
@@ -455,10 +467,8 @@ else:
 # =====================================================================
 # Figure 6: TurboQuant vs. standard intb — bit-width saturation
 # =====================================================================
-# Build lookup for turbo results
 turbo_metrics = {r["method"]: r for r in turbo_full["results"]}
 
-# Shared bit-widths where both families exist
 TURBO_BITS = [2, 3, 4, 8]
 int_methods = [f"int{b}" for b in TURBO_BITS]
 turbo_methods = [f"turbo{b}" for b in TURBO_BITS]
@@ -466,20 +476,16 @@ turbo_methods = [f"turbo{b}" for b in TURBO_BITS]
 int_recall_cos = [metrics[m]["knn_recall_10_cosine_sampled"] for m in int_methods]
 turbo_recall_cos = [turbo_metrics[m]["knn_recall_10_cosine_sampled"] for m in turbo_methods]
 
-INT_COLOR = "#2d1157"
-TURBO_COLOR = "#ff1867"
-FILL_ALPHA = 0.10
-
 x = np.array(TURBO_BITS)
 
 fig, ax = plt.subplots(figsize=(4.0, 2.8))
 
-ax.fill_between(x, turbo_recall_cos, int_recall_cos, color=INT_COLOR, alpha=FILL_ALPHA, zorder=1)
+ax.fill_between(x, turbo_recall_cos, int_recall_cos, color=PRIMARY, alpha=0.08, zorder=1)
 ax.plot(
     x,
     int_recall_cos,
     "o-",
-    color=INT_COLOR,
+    color=PRIMARY,
     linewidth=1.6,
     markersize=5.5,
     label="int$b$",
@@ -489,45 +495,56 @@ ax.plot(
     x,
     turbo_recall_cos,
     "s--",
-    color=TURBO_COLOR,
+    color=ACCENT,
     linewidth=1.6,
     markersize=5.5,
     label="turbo$b$",
     zorder=3,
 )
 
+# Per-bit label offsets to avoid overlap at 8-bit
+INT_LABEL_OFFSETS = {2: (0, 7), 3: (0, 7), 4: (-16, 0), 8: (-18, 0)}
+TURBO_LABEL_OFFSETS = {2: (0, -12), 3: (0, -12), 4: (16, 0), 8: (18, 0)}
+
 for xi, iv, tv in zip(x, int_recall_cos, turbo_recall_cos, strict=False):
+    dx_i, dy_i = INT_LABEL_OFFSETS[int(xi)]
     ax.annotate(
         f"{iv:.2f}",
         (xi, iv),
         textcoords="offset points",
-        xytext=(0, 6),
+        xytext=(dx_i, dy_i),
         fontsize=6.5,
         ha="center",
-        color=INT_COLOR,
+        color=PRIMARY,
         fontweight="bold",
     )
+    dx_t, dy_t = TURBO_LABEL_OFFSETS[int(xi)]
     ax.annotate(
         f"{tv:.2f}",
         (xi, tv),
         textcoords="offset points",
-        xytext=(0, -11),
+        xytext=(dx_t, dy_t),
         fontsize=6.5,
         ha="center",
-        color=TURBO_COLOR,
+        color=ACCENT,
         fontweight="bold",
     )
 
-turbo_gap = np.array(int_recall_cos) - np.array(turbo_recall_cos)
-best_gap_idx = int(np.argmax(turbo_gap))
-gap_label = f"largest gap = {turbo_gap[best_gap_idx]:.2f}"
+# BUG FIX: compute turbo - int (turbo is better), find largest absolute gap
+# The largest gap is at 2-bit, not 8-bit
+turbo_gap = np.array(turbo_recall_cos) - np.array(int_recall_cos)
+best_gap_idx = int(np.argmax(np.abs(turbo_gap)))
+gap_val = turbo_gap[best_gap_idx]
+gap_sign = "+" if gap_val > 0 else ""
+gap_label = f"$\\Delta = {gap_sign}{gap_val:.2f}$"
 ax.annotate(
     gap_label,
     xy=(x[best_gap_idx], turbo_recall_cos[best_gap_idx]),
-    xytext=(5.8, min(1.0, turbo_recall_cos[best_gap_idx] + 0.08)),
-    fontsize=6.5,
-    color=TURBO_COLOR,
-    arrowprops={"arrowstyle": "->", "color": TURBO_COLOR, "lw": 0.9},
+    xytext=(x[best_gap_idx] + 2.5, turbo_recall_cos[best_gap_idx] + 0.02),
+    fontsize=7,
+    color=ACCENT,
+    fontweight="bold",
+    arrowprops={"arrowstyle": "->", "color": ACCENT, "lw": 0.9},
     ha="center",
 )
 
@@ -537,7 +554,7 @@ ax.set_xticks(TURBO_BITS)
 ax.set_xticklabels([f"{b}b" for b in TURBO_BITS])
 ax.set_ylim(0.42, 1.06)
 ax.set_yticks([0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-ax.grid(True, alpha=0.2, linewidth=0.4)
+ax.grid(True, alpha=0.15, linewidth=0.4)
 ax.legend(fontsize=8, framealpha=0.85, edgecolor="none")
 
 plt.tight_layout()
@@ -547,7 +564,7 @@ print("Saved turbo_vs_int.pdf")
 
 
 # =====================================================================
-# Figure 7: Binary variants -- sample vs full transfer
+# Figure 7: Binary variants — sample vs full transfer
 # =====================================================================
 if binary_baselines is not None and binary_full is not None:
     rows_sample = {r["method"]: r for r in binary_baselines["results"]}
@@ -558,24 +575,24 @@ if binary_baselines is not None and binary_full is not None:
     full_vals = [rows_full[m]["knn_recall_10_cosine_sampled"] for m in order]
 
     fig, ax = plt.subplots(figsize=(5.8, 2.9))
-    x = np.arange(len(order))
+    xb = np.arange(len(order))
     w = 0.34
 
     bars_sample = ax.bar(
-        x - w / 2,
+        xb - w / 2,
         sample_vals,
         w,
-        color="#b998f7",
+        color=LIGHT,
         edgecolor="white",
         linewidth=0.7,
         alpha=0.9,
         label="20k subsample",
     )
     bars_full = ax.bar(
-        x + w / 2,
+        xb + w / 2,
         full_vals,
         w,
-        color="#2d1157",
+        color=PRIMARY,
         edgecolor="white",
         linewidth=0.7,
         alpha=0.9,
@@ -591,34 +608,34 @@ if binary_baselines is not None and binary_full is not None:
                 f"{h:.3f}",
                 ha="center",
                 fontsize=7,
-                color="#444",
+                color=NEUTRAL,
             )
 
     ax.annotate(
-        "looks promising\non subsample",
-        xy=(x[1] - w / 2, sample_vals[1]),
-        xytext=(0.7, 0.78),
+        "promising on\nsubsample",
+        xy=(xb[1] - w / 2, sample_vals[1]),
+        xytext=(0.55, 0.82),
         fontsize=7,
-        color="#536dfe",
-        arrowprops=dict(arrowstyle="->", color="#536dfe", lw=0.9),
+        color=ACCENT,
+        arrowprops={"arrowstyle": "->", "color": ACCENT, "lw": 0.9},
         ha="center",
     )
     ax.annotate(
-        "fails at lake scale\n(per-file calibration drift)",
-        xy=(x[1] + w / 2, full_vals[1]),
-        xytext=(1.9, 0.57),
+        "calibration drift\nat lake scale",
+        xy=(xb[1] + w / 2, full_vals[1]),
+        xytext=(1.65, 0.28),
         fontsize=7,
-        color="#ff1867",
-        arrowprops=dict(arrowstyle="->", color="#ff1867", lw=0.9),
+        color=PRIMARY,
+        arrowprops={"arrowstyle": "->", "color": PRIMARY, "lw": 0.9},
         ha="center",
     )
 
     ax.set_ylabel("kNN Recall@10 (Cosine)")
     ax.set_xlabel("Method")
-    ax.set_xticks(x)
+    ax.set_xticks(xb)
     ax.set_xticklabels(labels)
     ax.set_ylim(0.2, 0.9)
-    ax.grid(True, axis="y", alpha=0.2, linewidth=0.4)
+    ax.grid(True, axis="y", alpha=0.15, linewidth=0.4)
     ax.legend(fontsize=8, framealpha=0.85, edgecolor="none", loc="upper right")
     plt.tight_layout()
     fig.savefig(FIG_DIR / "binary_variants.pdf")
