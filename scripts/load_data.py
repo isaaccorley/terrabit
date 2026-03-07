@@ -117,30 +117,41 @@ def load_quantized_dequantized(
         msg = f"No quantized files found for method={method}"
         raise FileNotFoundError(msg)
 
-    meta = pq.ParquetFile(qfiles[0]).schema_arrow.metadata
-    qmeta = json.loads(meta[b"quantization"].decode("utf-8"))
-
     all_embs: list[np.ndarray] = []
     for fp in qfiles:
         pf = pq.ParquetFile(fp)
+        meta = pf.schema_arrow.metadata
+        if meta is None or b"quantization" not in meta:
+            msg = f"Missing quantization metadata in {fp}"
+            raise ValueError(msg)
+        qmeta = json.loads(meta[b"quantization"].decode("utf-8"))
+
+        file_embs: list[np.ndarray] = []
         for batch in pf.iter_batches(batch_size=50_000, columns=["embedding"]):
             raw = _read_embedding_column(batch.column("embedding"))
-            all_embs.append(raw)
+            file_embs.append(raw)
 
-    raw_all = np.concatenate(all_embs, axis=0)
+        raw_all = np.concatenate(file_embs, axis=0)
+        result: dict = {"quantized": raw_all, "method": method}
+        if "scale" in qmeta:
+            result["scale"] = np.array(qmeta["scale"], dtype=np.float32)
+        if "zero_point" in qmeta:
+            result["zero_point"] = np.array(qmeta["zero_point"], dtype=np.float32)
+        if "n_dims" in qmeta:
+            result["n_dims"] = qmeta["n_dims"]
+        if "turbo_bits" in qmeta:
+            result["turbo_bits"] = qmeta["turbo_bits"]
+        if "turbo_seed" in qmeta:
+            result["turbo_seed"] = qmeta["turbo_seed"]
+
+        all_embs.append(dequantize(result))
+
+    dequantized_all = np.concatenate(all_embs, axis=0)
 
     if chosen_idx is not None:
-        raw_all = raw_all[chosen_idx]
+        dequantized_all = dequantized_all[chosen_idx]
 
-    result: dict = {"quantized": raw_all, "method": method}
-    if "scale" in qmeta:
-        result["scale"] = np.array(qmeta["scale"], dtype=np.float32)
-    if "zero_point" in qmeta:
-        result["zero_point"] = np.array(qmeta["zero_point"], dtype=np.float32)
-    if "n_dims" in qmeta:
-        result["n_dims"] = qmeta["n_dims"]
-
-    return dequantize(result)
+    return dequantized_all
 
 
 def load_quantized_binary_raw(

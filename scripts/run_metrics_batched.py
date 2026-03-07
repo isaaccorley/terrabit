@@ -208,28 +208,30 @@ def _exact_metrics_for_file(
     }
 
 
-def _reservoir_update_pair(
+def _reservoir_update_aligned(
     *,
     rng: np.random.Generator,
-    sample_a: np.ndarray,
-    sample_b: np.ndarray,
-    batch_a: np.ndarray,
-    batch_b: np.ndarray,
+    samples: tuple[np.ndarray, ...],
+    batches: tuple[np.ndarray, ...],
     n_seen: int,
     reservoir_size: int,
 ) -> int:
-    """Update two aligned reservoirs with the same slot decisions. Returns updated n_seen."""
-    batch_n = int(batch_a.shape[0])
+    """Update aligned reservoirs with the same slot decisions. Returns updated n_seen."""
+    if len(samples) != len(batches):
+        raise ValueError("samples and batches must have the same length")
+
+    batch_n = int(batches[0].shape[0])
+    if any(int(batch.shape[0]) != batch_n for batch in batches[1:]):
+        raise ValueError("All aligned batches must share the same number of rows")
 
     # Phase 1: fill empty slots directly (no RNG needed)
     if n_seen < reservoir_size:
         fill_end = min(n_seen + batch_n, reservoir_size)
         fill_n = fill_end - n_seen
-        sample_a[n_seen:fill_end] = batch_a[:fill_n]
-        sample_b[n_seen:fill_end] = batch_b[:fill_n]
+        for sample, batch in zip(samples, batches, strict=True):
+            sample[n_seen:fill_end] = batch[:fill_n]
         n_seen += fill_n
-        batch_a = batch_a[fill_n:]
-        batch_b = batch_b[fill_n:]
+        batches = tuple(batch[fill_n:] for batch in batches)
         batch_n -= fill_n
 
     # Phase 2: probabilistic replacement for rows beyond reservoir_size
@@ -238,8 +240,8 @@ def _reservoir_update_pair(
         slots = rng.integers(0, row_indices + 1, dtype=np.int64)
         keep_mask = slots < reservoir_size
         keep_slots = slots[keep_mask]
-        sample_a[keep_slots] = batch_a[keep_mask]
-        sample_b[keep_slots] = batch_b[keep_mask]
+        for sample, batch in zip(samples, batches, strict=True):
+            sample[keep_slots] = batch[keep_mask]
         n_seen += batch_n
 
     return n_seen
@@ -262,7 +264,8 @@ def _sample_reservoir(
     rng = np.random.default_rng(seed)
     sample_orig: np.ndarray | None = None
     sample_quant: np.ndarray | None = None
-    qmeta_saved: dict[str, Any] | None = None
+    sample_meta_idx: np.ndarray | None = None
+    qmeta_by_file: list[dict[str, Any]] = []
     n_seen = 0
 
     total_files = len(pairs)
@@ -270,28 +273,29 @@ def _sample_reservoir(
         orig_pf = pq.ParquetFile(orig_file)
         quant_pf = pq.ParquetFile(quant_file)
         qmeta = _parse_quant_meta(quant_pf.schema_arrow)
-        if qmeta_saved is None:
-            qmeta_saved = qmeta
+        qmeta_idx = len(qmeta_by_file)
+        qmeta_by_file.append(qmeta)
 
         orig_batches = orig_pf.iter_batches(columns=["embedding"], batch_size=batch_size)
         quant_batches = quant_pf.iter_batches(columns=["embedding"], batch_size=batch_size)
         for orig_batch, quant_batch in zip(orig_batches, quant_batches, strict=True):
             x_orig = _extract_2d(orig_batch.column(0)).astype(np.float32, copy=False)
             q_values = _extract_2d(quant_batch.column(0))
+            batch_meta_idx = np.full(x_orig.shape[0], qmeta_idx, dtype=np.int32)
 
             if sample_orig is None:
                 orig_dim = int(x_orig.shape[1])
                 quant_dim = int(q_values.shape[1])
                 sample_orig = np.empty((reservoir_size, orig_dim), dtype=np.float32)
                 sample_quant = np.empty((reservoir_size, quant_dim), dtype=q_values.dtype)
+                sample_meta_idx = np.empty(reservoir_size, dtype=np.int32)
             assert sample_quant is not None
+            assert sample_meta_idx is not None
 
-            n_seen = _reservoir_update_pair(
+            n_seen = _reservoir_update_aligned(
                 rng=rng,
-                sample_a=sample_orig,
-                sample_b=sample_quant,
-                batch_a=x_orig,
-                batch_b=q_values,
+                samples=(sample_orig, sample_quant, sample_meta_idx),
+                batches=(x_orig, q_values, batch_meta_idx),
                 n_seen=n_seen,
                 reservoir_size=reservoir_size,
             )
@@ -299,12 +303,21 @@ def _sample_reservoir(
         if idx % progress_every == 0 or idx == total_files:
             console.print(f"  {method}: sampling {idx}/{total_files} files  seen_rows={n_seen}")
 
-    if sample_orig is None or sample_quant is None or qmeta_saved is None:
+    if sample_orig is None or sample_quant is None or sample_meta_idx is None or not qmeta_by_file:
         raise ValueError(f"No data found for method {method}")
 
     sample_n = min(reservoir_size, n_seen)
-    # Dequantize only the reservoir rows — O(reservoir_size) not O(N)
-    x_sample_recon = _dequantize_with_meta(q_values=sample_quant[:sample_n], qmeta=qmeta_saved)
+    x_sample_recon = np.empty_like(sample_orig[:sample_n])
+    sample_meta_idx_view = sample_meta_idx[:sample_n]
+
+    # Dequantize only the reservoir rows, grouped by the file-level metadata used
+    # when each sampled row was quantized.
+    for meta_idx in np.unique(sample_meta_idx_view):
+        row_mask = sample_meta_idx_view == meta_idx
+        x_sample_recon[row_mask] = _dequantize_with_meta(
+            q_values=sample_quant[:sample_n][row_mask],
+            qmeta=qmeta_by_file[int(meta_idx)],
+        )
     return sample_orig[:sample_n], x_sample_recon, sample_n
 
 

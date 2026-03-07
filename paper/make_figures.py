@@ -37,8 +37,8 @@ if binary_full_path.exists():
 with open(RESULTS_DIR / "report_metrics_batched_turbo_full.json") as f:
     turbo_full = json.load(f)
 
-# ---------- retro-purple / synthwave data palette on white ----------
-ACCENT = "#7c4dff"  # baseline accent (vivid purple)
+# ---------- paper palette ----------
+ACCENT = "#0f766e"
 
 plt.rcParams.update(
     {
@@ -86,7 +86,6 @@ STORAGE_GIB = {
     "binary": 11.07,
 }
 
-# Precision gradient: cool cyan -> vivid purple -> hot magenta
 COLORS = {
     "float16": "#0097a7",  # deep teal
     "fp8": "#00796b",  # dark emerald
@@ -96,8 +95,6 @@ COLORS = {
     "int2": "#d500f9",  # magenta
     "binary": "#ff1867",  # hot pink
 }
-
-LINE_C = "#555555"  # muted connector line
 
 # Build lookup from full results
 metrics = {r["method"]: r for r in full["results"]}
@@ -313,13 +310,9 @@ bars = ax.bar(
     error_kw={"ecolor": "#999", "linewidth": 0.8},
     alpha=0.88,
 )
-ax.axhline(
-    y=1024, color=ACCENT, linestyle="--", alpha=0.5, linewidth=0.8, label="Ambient dim (1024)"
-)
 ax.set_ylabel("Intrinsic Dimension")
 ax.set_title("ID Estimates (d=1024 embeddings)", fontsize=9, fontweight="bold")
 ax.set_ylim(0, max(vals) * 1.4)
-ax.legend(fontsize=7, framealpha=0.8, edgecolor="none")
 
 for bar, v in zip(bars, vals, strict=False):
     ax.text(
@@ -330,6 +323,18 @@ for bar, v in zip(bars, vals, strict=False):
         fontsize=7,
         color="#555",
     )
+
+ax.text(
+    0.98,
+    0.95,
+    "ambient dim = 1024",
+    transform=ax.transAxes,
+    ha="right",
+    va="top",
+    fontsize=7,
+    color=ACCENT,
+    bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "edgecolor": "none", "alpha": 0.9},
+)
 
 plt.tight_layout()
 fig.savefig(FIG_DIR / "intrinsic_dim.pdf")
@@ -513,10 +518,13 @@ for xi, iv, tv in zip(x, int_recall_cos, turbo_recall_cos, strict=False):
         fontweight="bold",
     )
 
+turbo_gap = np.array(int_recall_cos) - np.array(turbo_recall_cos)
+best_gap_idx = int(np.argmax(turbo_gap))
+gap_label = f"largest gap = {turbo_gap[best_gap_idx]:.2f}"
 ax.annotate(
-    "recall saturates\n(rotation is bottleneck)",
-    xy=(4, turbo_recall_cos[2]),
-    xytext=(5.8, 0.67),
+    gap_label,
+    xy=(x[best_gap_idx], turbo_recall_cos[best_gap_idx]),
+    xytext=(5.8, min(1.0, turbo_recall_cos[best_gap_idx] + 0.08)),
     fontsize=6.5,
     color=TURBO_COLOR,
     arrowprops={"arrowstyle": "->", "color": TURBO_COLOR, "lw": 0.9},
