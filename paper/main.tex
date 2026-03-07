@@ -238,20 +238,19 @@ Table~\ref{tab:quality} summarizes quality across all methods.
 \paragraph{TurboQuant analysis.}
 
 Table~\ref{tab:turbo} and Figure~\ref{fig:turbo} compare TurboQuant~\citep{zandieh2025turboquant} against standard \texttt{int}$b$ at matched bit-widths.
-The headline finding is the opposite of our initial expectation: turbo methods improve recall at every tested bit-width, but the gain shrinks rapidly as precision increases.
+TurboQuant improves recall at every tested bit-width, but the gain shrinks rapidly as precision increases.
 
 \textbf{Largest gains at the lowest bit-widths.}
-At 2 bits, \texttt{turbo2} reaches recall@10 of 0.71 versus 0.54 for \texttt{int2}, a gain of 16 points at essentially identical compression.
+At 2 bits, \texttt{turbo2} reaches recall@10 of 0.71 versus 0.54 for \texttt{int2}, a gain of +17\% at essentially identical compression.
 At 3 bits, \texttt{turbo3} improves recall from 0.79 to 0.88.
 The gap narrows at 4 bits (0.95 vs.\ 0.91) and is nearly zero at 8 bits (1.00 vs.\ 0.99).
 
-\textbf{Why the gain diminishes with precision.}
+\textbf{Diminishing returns at higher precision.}
 TurboQuant's random orthogonal rotation redistributes variance across channels before scalar quantization.
-That equalization matters most when the quantizer is extremely coarse: at 2--3 bits, better range utilization produces a meaningful recall gain.
-Once bit-width is high enough that plain per-dimension affine quantization is already near-lossless, the extra rotation has little room to help.
-This pattern fits the geometry of geospatial ViT embeddings: the manifold is low-dimensional enough that 8-bit quantization already preserves neighborhood structure almost perfectly, so rotation mainly benefits the most constrained operating points.
+At 2--3 bits, this equalization materially improves range utilization and recall; once per-dimension affine quantization is already near-lossless (8 bits), the rotation has little room to help.
+The low intrinsic dimension of these embeddings ($\hat{d} \approx 13$--$17$) means 8-bit quantization already preserves neighborhood structure almost perfectly, confining rotation's benefit to the most constrained operating points.
 
-\textbf{Takeaway.}
+\textbf{Practical recommendation.}
 For geospatial embedding lakes, TurboQuant is most useful in the ultra-low-bit regime.
 If the deployment target is 2--3 bits, rotation offers a measurable quality gain; if 8-bit storage is acceptable, plain affine quantization is simpler and effectively equivalent.
 
@@ -262,7 +261,6 @@ We run \texttt{binary\_med} and \texttt{binary\_zscore} on the full corpus; \tex
 On a \num{20000}-embedding subsample, \texttt{binary\_med} appears promising, improving cosine recall@10 from 0.637 to 0.659 at the same $32\times$ code-only compression.
 However, Figure~\ref{fig:binary-variants} shows that this gain does \emph{not} survive at corpus scale: on the full corpus, \texttt{binary\_med} drops to 0.40 recall@10 and underperforms plain sign coding.
 
-This failure mode is informative.
 Both variants estimate thresholds independently within each Parquet partition, so the same semantic region of embedding space is binarized with different decision boundaries across geohash/year shards.
 That per-file calibration drift is mostly invisible on a local subsample but becomes destructive when nearest neighbors span many partitions.
 The result also reinforces a broader point from angular-hashing work~\citep{gong2012angular}: preserving rank neighborhoods in binary space depends on consistent angular partitions, not merely on improving local reconstruction statistics.
@@ -289,7 +287,6 @@ The full pipeline (all 7 methods, 8 workers) processes the entire corpus in \SI{
 
 \paragraph{Discussion.}
 
-Four findings emerge.
 First, ID estimates of 13--20 (vs.\ ambient $d{=}1024$) explain why aggressive quantization does not immediately collapse neighborhood structure: most per-dimension variance is redundant for local geometry.
 Second, the quality decline from \texttt{int8} to \texttt{int2} is gradual (Figure~\ref{fig:knn-k}), enabling practitioners to select operating points based on their recall requirements versus storage budget.
 Third, \texttt{binary} quantization is not quality-preserving in a strict sense, but its $16.5\times$ compression and compatibility with Hamming-distance search make it attractive for first-pass candidate generation in multi-stage retrieval pipelines~\citep{wang2018binary}.
@@ -297,7 +294,7 @@ Fourth, post-hoc binary refinements that look promising on small subsamples can 
 
 \paragraph{Retrieval benchmark.}
 
-To validate that quantization-induced compression translates to practical search speedups, we benchmark brute-force kNN retrieval on a 1M-vector subset (\num{1000} queries, $k{=}50$) using FAISS~\citep{johnson2021faiss} on CPU and PyTorch \texttt{cdist} on a single NVIDIA RTX 3090 GPU.
+To validate that quantization-induced compression translates to practical search speedups, we benchmark brute-force kNN retrieval on a 1M-vector subset (\num{1000} queries, $k{=}10$) using FAISS~\citep{johnson2021faiss} on CPU and PyTorch \texttt{cdist} on a single NVIDIA RTX 3090 GPU.
 Each quantized corpus is dequantized to \texttt{float32} before indexing, isolating the effect of quantization noise from format-specific index optimizations; binary embeddings use Hamming distance directly via packed \texttt{uint8} search.
 
 Table~\ref{tab:search} and Figure~\ref{fig:search} summarize throughput and recall.
@@ -342,7 +339,8 @@ Binary Hamming search runs at \num{270}\,QPS on CPU and \num{134}\,QPS on GPU; t
 We use label-free neighborhood-preservation proxies rather than task-specific metrics (e.g., land-cover classification accuracy).
 kNN recall and cosine correlation are computed on a reservoir sample, not the full corpus.
 Our retrieval benchmark uses brute-force search; approximate nearest-neighbor indices such as inverted file (IVF) and hierarchical navigable small worlds (HNSW) may alter the quality--throughput frontier at larger scale~\citep{johnson2021faiss}.
-Future work should add labeled downstream evaluation (e.g., land-cover classification accuracy as in~\citet{chen2026esd}), investigate ANN index interactions with low-bit quantization, and explore whether stacking post-hoc quantization on top of learned discrete representations~\citep{mentzer2023fsq,chen2026esd} can compound compression gains.
+Future work should add labeled downstream evaluation (e.g., land-cover classification accuracy as in~\citet{chen2026esd}) and investigate ANN index interactions with low-bit quantization.
+Stacking post-hoc quantization on top of learned discrete representations~\citep{mentzer2023fsq,chen2026esd} may compound compression gains further.
 
 \section{Conclusion}
 \label{sec:conclusion}
