@@ -44,6 +44,11 @@ type PositivePoint = {
   lng: number;
 };
 
+type PositiveMatch = {
+  pointId: number;
+  candidate: CandidateRow;
+};
+
 type CandidateRow = {
   chips_id: string;
   bbox: BBox;
@@ -63,6 +68,7 @@ type AppState = {
   manifestShards: ManifestRow[];
   candidateRows: CandidateRow[];
   positivePoints: PositivePoint[];
+  positiveMatches: PositiveMatch[];
   results: RankedRow[];
   shardCount: number;
   candidateCount: number;
@@ -82,6 +88,7 @@ const state: AppState = {
   manifestShards: [],
   candidateRows: [],
   positivePoints: [],
+  positiveMatches: [],
   results: [],
   shardCount: 0,
   candidateCount: 0,
@@ -91,6 +98,7 @@ const state: AppState = {
 let dbPromise: Promise<duckdb.AsyncDuckDB> | null = null;
 let popcountTable: Uint8Array | null = null;
 let positiveLayer: any = null;
+let positiveMatchLayer: any = null;
 let aoiLayer: any = null;
 let resultLayer: any = null;
 let previewLayer: any = null;
@@ -178,6 +186,32 @@ function centroid(box: BBox): { lat: number; lng: number } {
   };
 }
 
+function distanceSquared(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const dLat = aLat - bLat;
+  const dLng = aLng - bLng;
+  return dLat * dLat + dLng * dLng;
+}
+
+function resolvePositiveMatches(): PositiveMatch[] {
+  return state.positivePoints.flatMap((point) => {
+    const intersecting = state.candidateRows.filter((candidate) => containsPoint(candidate.bbox, point.lat, point.lng));
+    if (!intersecting.length) {
+      return [];
+    }
+    let candidate = intersecting[0];
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const option of intersecting) {
+      const center = centroid(option.bbox);
+      const distance = distanceSquared(point.lat, point.lng, center.lat, center.lng);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        candidate = option;
+      }
+    }
+    return [{ pointId: point.id, candidate }];
+  });
+}
+
 function buildManifestQuery(manifestUrl: string, bbox: BBox): string {
   return `
     SELECT path, rows, xmin, ymin, xmax, ymax, year
@@ -254,11 +288,11 @@ function ensureScoringWorker(): Worker {
 
 function initializeScoringWorker(candidates: CandidateRow[]): void {
   const worker = ensureScoringWorker();
-  const embeddings = candidates.map((candidate) => candidate.embedding.buffer.slice(0));
+  const embeddings = candidates.map((candidate) => new Uint8Array(candidate.embedding));
   worker.postMessage({
     type: "init",
     embeddings,
-  }, embeddings);
+  });
   scoringWorkerReady = true;
 }
 
@@ -306,14 +340,14 @@ async function scoreCandidatesInWorker(exemplars: CandidateRow[]): Promise<Ranke
 
     worker.addEventListener("message", handleMessage);
     worker.addEventListener("error", handleError);
-    const exemplarBuffers = exemplars.map((exemplar) => exemplar.embedding.buffer.slice(0));
+    const exemplarBuffers = exemplars.map((exemplar) => new Uint8Array(exemplar.embedding));
     worker.postMessage({
       type: "score",
       requestId,
       exemplars: exemplarBuffers,
       excludeIndices: [...excludeIndices],
       topK: DEFAULT_TOP_K,
-    }, exemplarBuffers);
+    });
   });
 
   return results.map(({ index, score }) => ({
@@ -551,6 +585,7 @@ async function queryManifestAndLoadCandidates(bbox: BBox): Promise<void> {
   state.manifestShards = [];
   state.shardCount = 0;
   state.candidateCount = 0;
+  state.positiveMatches = [];
   clearLayers();
   updateView();
 
@@ -609,20 +644,22 @@ async function queryManifestAndLoadCandidates(bbox: BBox): Promise<void> {
 async function scoreCandidates(): Promise<void> {
   const runId = ++latestScoreRunId;
   if (!state.candidateRows.length || !state.positivePoints.length) {
+    state.positiveMatches = [];
     state.results = [];
     renderHoverPreview(null);
+    renderPositiveMatches();
     renderResultsOnMap();
     updateView();
     return;
   }
 
-  const exemplars = state.positivePoints
-    .map((point) => state.candidateRows.find((candidate) => containsPoint(candidate.bbox, point.lat, point.lng)))
-    .filter((item): item is CandidateRow => Boolean(item));
+  state.positiveMatches = resolvePositiveMatches();
+  const exemplars = state.positiveMatches.map((match) => match.candidate);
 
   if (!exemplars.length) {
     state.results = [];
     renderHoverPreview(null);
+    renderPositiveMatches();
     renderResultsOnMap();
     setStatus("No patch under one of the positive points. Click closer to a patch center.");
     return;
@@ -630,6 +667,7 @@ async function scoreCandidates(): Promise<void> {
 
   state.results = [];
   renderHoverPreview(null);
+  renderPositiveMatches();
   renderResultsOnMap();
   updateView();
   setStatus(`Scoring ${new Intl.NumberFormat().format(state.candidateRows.length)} candidates...`);
@@ -662,6 +700,7 @@ function renderAoiBox(bbox: BBox): void {
 
 function clearLayers(): void {
   positiveLayer?.clearLayers();
+  positiveMatchLayer?.clearLayers();
   resultLayer?.clearLayers();
   previewLayer?.clearLayers();
   aoiLayer?.clearLayers();
@@ -688,9 +727,11 @@ function cancelAoiDraft(): void {
 
 function clearPositiveSelection(status = "Positive points cleared."): void {
   state.positivePoints = [];
+  state.positiveMatches = [];
   state.results = [];
   renderHoverPreview(null);
   renderPositivePoints();
+  renderPositiveMatches();
   renderResultsOnMap();
   setStatus(status);
   updateView();
@@ -709,6 +750,29 @@ function renderPositivePoints(): void {
       fillOpacity: 1,
       weight: 2,
     }).addTo(positiveLayer);
+  }
+}
+
+function renderPositiveMatches(): void {
+  if (!positiveMatchLayer) {
+    return;
+  }
+  positiveMatchLayer.clearLayers();
+  for (const match of state.positiveMatches) {
+    L.rectangle(
+      [
+        [match.candidate.bbox.south, match.candidate.bbox.west],
+        [match.candidate.bbox.north, match.candidate.bbox.east],
+      ],
+      {
+        color: "#6ef273",
+        weight: 2,
+        fillColor: "#6ef273",
+        fillOpacity: 0.14,
+      },
+    )
+      .bindPopup(`<strong>positive exemplar</strong><br />${match.candidate.chips_id}`)
+      .addTo(positiveMatchLayer);
   }
 }
 
@@ -801,6 +865,7 @@ function attachMap(): void {
 
   aoiLayer = new L.FeatureGroup().addTo(map);
   positiveLayer = new L.FeatureGroup().addTo(map);
+  positiveMatchLayer = new L.FeatureGroup().addTo(map);
   resultLayer = new L.FeatureGroup().addTo(map);
   previewLayer = new L.FeatureGroup().addTo(map);
 
@@ -919,7 +984,6 @@ function attachMap(): void {
     state.positivePoints.push(point);
     renderPositivePoints();
     void scoreCandidates();
-    renderResultsOnMap();
     updateView();
   });
 
@@ -951,6 +1015,7 @@ function attachMap(): void {
     state.manifestShards = [];
     state.candidateRows = [];
     state.positivePoints = [];
+    state.positiveMatches = [];
     state.results = [];
     state.shardCount = 0;
     state.candidateCount = 0;

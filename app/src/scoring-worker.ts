@@ -1,12 +1,12 @@
 type InitMessage = {
   type: "init";
-  embeddings: ArrayBuffer[];
+  embeddings: Uint8Array[];
 };
 
 type ScoreMessage = {
   type: "score";
   requestId: number;
-  exemplars: ArrayBuffer[];
+  exemplars: Uint8Array[];
   excludeIndices: number[];
   topK: number;
 };
