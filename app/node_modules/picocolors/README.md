@@ -18,4 +18,5 @@ console.log(
 - [`NO_COLOR`](https://no-color.org/) friendly.
 
 ## Docs
+
 Read **[full docs](https://github.com/alexeyraspopov/picocolors#readme)** on GitHub.

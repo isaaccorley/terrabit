@@ -96,7 +96,17 @@ def test_repartition_file_writes_grid_layout(tmp_path: Path) -> None:
 
     manifest = pq.ParquetFile(out_root / "manifest.parquet").read()
     assert manifest.num_rows == 2
-    assert manifest.column_names == ["path", "rows", "xmin", "ymin", "xmax", "ymax", "tile_x", "tile_y", "year"]
+    assert manifest.column_names == [
+        "path",
+        "rows",
+        "xmin",
+        "ymin",
+        "xmax",
+        "ymax",
+        "tile_x",
+        "tile_y",
+        "year",
+    ]
     schema_meta = manifest.schema.metadata or {}
     assert schema_meta[b"tile_x_col"] == b"tile_x"
     assert schema_meta[b"tile_y_col"] == b"tile_y"

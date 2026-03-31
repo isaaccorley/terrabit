@@ -94,12 +94,16 @@ def _select_columns(
     return table.select(requested)
 
 
-def _tile_indices(values: np.ndarray, *, min_value: float, max_value: float, step: float) -> np.ndarray:
+def _tile_indices(
+    values: np.ndarray, *, min_value: float, max_value: float, step: float
+) -> np.ndarray:
     clipped = np.clip(values, min_value, np.nextafter(max_value, min_value))
     return np.floor((clipped - min_value) / step).astype(np.int32)
 
 
-def _group_indices_from_arrays(partition_arrays: list[list[str]]) -> dict[tuple[str, ...], list[int]]:
+def _group_indices_from_arrays(
+    partition_arrays: list[list[str]],
+) -> dict[tuple[str, ...], list[int]]:
     groups: dict[tuple[str, ...], list[int]] = defaultdict(list)
     for idx, key in enumerate(zip(*partition_arrays, strict=True)):
         groups[tuple(str(part) for part in key)].append(idx)
@@ -144,7 +148,9 @@ def _merge_bbox(current: dict[str, float] | None, update: dict[str, float]) -> d
     }
 
 
-def _tile_bbox(tile_x: str, tile_y: str, *, tile_width_deg: float, tile_height_deg: float) -> dict[str, float]:
+def _tile_bbox(
+    tile_x: str, tile_y: str, *, tile_width_deg: float, tile_height_deg: float
+) -> dict[str, float]:
     x = int(tile_x)
     y = int(tile_y)
     xmin = LON_MIN + x * tile_width_deg
@@ -202,7 +208,9 @@ class ShardWriterManager:
         if self.compression is not None:
             kwargs["compression"] = self.compression
         writer = pq.ParquetWriter(out_file, schema, **kwargs)
-        shard = OpenShard(writer=writer, out_file=out_file, rows=0, bbox=None, partitions=partitions)
+        shard = OpenShard(
+            writer=writer, out_file=out_file, rows=0, bbox=None, partitions=partitions
+        )
         self.open_shards[key] = shard
         return shard
 
@@ -291,7 +299,11 @@ def repartition_file(
         manager.write_partition(key, _slice_table(table, indices))
 
     manifest_entries = manager.close()
-    return {"rows": table.num_rows, "files": manager.files_written, "manifest_entries": manifest_entries}
+    return {
+        "rows": table.num_rows,
+        "files": manager.files_written,
+        "manifest_entries": manifest_entries,
+    }
 
 
 def write_manifest(
@@ -313,12 +325,24 @@ def write_manifest(
         {
             "path": pa.array([entry["path"] for entry in ordered_entries], type=pa.string()),
             "rows": pa.array([entry["rows"] for entry in ordered_entries], type=pa.int64()),
-            "xmin": pa.array([entry["bbox"]["xmin"] for entry in ordered_entries], type=pa.float64()),
-            "ymin": pa.array([entry["bbox"]["ymin"] for entry in ordered_entries], type=pa.float64()),
-            "xmax": pa.array([entry["bbox"]["xmax"] for entry in ordered_entries], type=pa.float64()),
-            "ymax": pa.array([entry["bbox"]["ymax"] for entry in ordered_entries], type=pa.float64()),
-            "tile_x": pa.array([entry["partitions"][tile_x_col] for entry in ordered_entries], type=pa.string()),
-            "tile_y": pa.array([entry["partitions"][tile_y_col] for entry in ordered_entries], type=pa.string()),
+            "xmin": pa.array(
+                [entry["bbox"]["xmin"] for entry in ordered_entries], type=pa.float64()
+            ),
+            "ymin": pa.array(
+                [entry["bbox"]["ymin"] for entry in ordered_entries], type=pa.float64()
+            ),
+            "xmax": pa.array(
+                [entry["bbox"]["xmax"] for entry in ordered_entries], type=pa.float64()
+            ),
+            "ymax": pa.array(
+                [entry["bbox"]["ymax"] for entry in ordered_entries], type=pa.float64()
+            ),
+            "tile_x": pa.array(
+                [entry["partitions"][tile_x_col] for entry in ordered_entries], type=pa.string()
+            ),
+            "tile_y": pa.array(
+                [entry["partitions"][tile_y_col] for entry in ordered_entries], type=pa.string()
+            ),
             **{
                 name: pa.array(
                     [entry["partitions"].get(name, "") for entry in ordered_entries],

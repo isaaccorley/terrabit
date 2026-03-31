@@ -338,7 +338,9 @@ def quantize_binary_itq(
     *,
     seed: int = 0,
     n_iter: int = 20,
-) -> tuple[np.ndarray[tuple[int, ...], np.dtype[np.uint8]], NDArrayF32, NDArrayF32, NDArrayF32, NDArrayF32]:
+) -> tuple[
+    np.ndarray[tuple[int, ...], np.dtype[np.uint8]], NDArrayF32, NDArrayF32, NDArrayF32, NDArrayF32
+]:
     """ITQ-style binary coding: PCA whitening + learned orthogonal rotation + sign."""
     z, mean, components, std = _pca_whiten_full(x)
     d = z.shape[1]

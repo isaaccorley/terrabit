@@ -109,7 +109,12 @@ def test_sample_reservoir_uses_matching_metadata_for_each_sample(tmp_path: Path)
         dtype=np.float32,
     )
     file_b = np.array(
-        [[100.0, 101.0, 102.0], [102.0, 103.0, 104.0], [104.0, 105.0, 106.0], [106.0, 107.0, 108.0]],
+        [
+            [100.0, 101.0, 102.0],
+            [102.0, 103.0, 104.0],
+            [104.0, 105.0, 106.0],
+            [106.0, 107.0, 108.0],
+        ],
         dtype=np.float32,
     )
 

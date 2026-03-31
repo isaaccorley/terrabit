@@ -35,6 +35,7 @@ _standalone = cast("Any", importlib.import_module("pcodec.standalone"))
 def _make_chunk_config(**kwargs: Any) -> Any:
     return _pcodec.ChunkConfig(**kwargs)
 
+
 DEFAULT_METHODS: tuple[QuantizationMethod, ...] = (
     "float16",
     "fp8",
@@ -209,7 +210,9 @@ def _benchmark_parquet(
 
         arr = restored.chunk(0) if len(restored.chunks) == 1 else restored.combine_chunks()
         q_values = arr.values.to_numpy(zero_copy_only=False).reshape((len(arr), arr.type.list_size))
-        max_abs_error = float(np.max(np.abs(q_values.astype(np.float32) - values_2d.astype(np.float32))))
+        max_abs_error = float(
+            np.max(np.abs(q_values.astype(np.float32) - values_2d.astype(np.float32)))
+        )
 
         dequantize_s: float | None = None
         if meta is not None:
@@ -259,7 +262,9 @@ def _benchmark_external(
     read_s = time.perf_counter() - t1
 
     restored_2d = _restore_2d(restored, values_2d.shape, config.layout)
-    max_abs_error = float(np.max(np.abs(restored_2d.astype(np.float32) - values_2d.astype(np.float32))))
+    max_abs_error = float(
+        np.max(np.abs(restored_2d.astype(np.float32) - values_2d.astype(np.float32)))
+    )
 
     dequantize_s: float | None = None
     if meta is not None:
@@ -365,12 +370,8 @@ def main() -> None:
         "quantized_shape": list(sample.shape),
         "quantized_dtype": str(sample.dtype),
         "quantization_meta": None,
-        "parquet": [
-            _benchmark_parquet(sample, sample.shape[1], cfg) for cfg in PARQUET_CONFIGS
-        ],
-        "external": [
-            _benchmark_external(sample, sample.shape[1], cfg) for cfg in EXTERNAL_CONFIGS
-        ],
+        "parquet": [_benchmark_parquet(sample, sample.shape[1], cfg) for cfg in PARQUET_CONFIGS],
+        "external": [_benchmark_external(sample, sample.shape[1], cfg) for cfg in EXTERNAL_CONFIGS],
     }
 
     for method, q in quantized.items():

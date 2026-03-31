@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+from load_data import load_source_embeddings
 from rich.console import Console
 
-from load_data import load_source_embeddings
 from terrabit.metrics import cosine_similarity_correlation, knn_recall_multi
 from terrabit.quantization import dequantize, quantize
 
@@ -48,7 +48,9 @@ def _serialize(obj: object) -> object:
     return obj
 
 
-def _metric_row(x: np.ndarray, x_recon: np.ndarray, *, method: str, elapsed_s: float) -> dict[str, Any]:
+def _metric_row(
+    x: np.ndarray, x_recon: np.ndarray, *, method: str, elapsed_s: float
+) -> dict[str, Any]:
     recalls = knn_recall_multi(x, x_recon, ks=DEFAULT_KS, metric="cosine")
     q10 = float(recalls[10])
     q25 = float(recalls[25])

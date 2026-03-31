@@ -2,6 +2,13 @@ embeddings/
 results/
 *.bak*
 
+# Web app
+app/node_modules/
+app/dist/
+app/.playwright-cli/
+app/output/
+app/.vite/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

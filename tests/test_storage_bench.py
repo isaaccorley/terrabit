@@ -43,12 +43,16 @@ def test_storage_bench_helpers_roundtrip(tmp_path: Path) -> None:
     q_values = np.asarray(quantized["quantized"])
     meta = module._make_quant_meta("int8", sample.shape[1], quantized)
 
-    parquet_result = module._benchmark_parquet(q_values, sample.shape[1], module.PARQUET_CONFIGS[0], meta)
+    parquet_result = module._benchmark_parquet(
+        q_values, sample.shape[1], module.PARQUET_CONFIGS[0], meta
+    )
     assert parquet_result["bytes"] > 0
     assert parquet_result["max_abs_error"] == 0.0
     assert parquet_result["dequantize_s"] is not None
 
-    external_result = module._benchmark_external(q_values, sample.shape[1], module.EXTERNAL_CONFIGS[-1], meta)
+    external_result = module._benchmark_external(
+        q_values, sample.shape[1], module.EXTERNAL_CONFIGS[-1], meta
+    )
     assert external_result["bytes"] > 0
     assert external_result["max_abs_error"] == 0.0
     assert external_result["dequantize_s"] is not None

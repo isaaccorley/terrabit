@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 dependencies = [
-  "huggingface-hub>=1.8.0",
+  "huggingface-hub>=1.8",
   "numpy",
   "pcodec>=1.0.1",
   "pyarrow",
