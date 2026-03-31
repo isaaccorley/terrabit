@@ -83,7 +83,7 @@ type WorkerScoreResult = {
 const state: AppState = {
   manifestUrl: getDefaultManifestUrl(),
   bbox: null,
-  status: "Draw an AOI with the button or Shift-drag. Then click inside it to add positive points.",
+  status: "Draw a region with the button or Shift-drag. Then click inside it to add positive points.",
   controlsCollapsed: false,
   manifestShards: [],
   candidateRows: [],
@@ -362,6 +362,7 @@ function createAppShell(): void {
     throw new Error("App root not found");
   }
 
+  document.title = "terrabit binarized embeddings demo";
   app.innerHTML = `
     <main class="shell">
       <section class="workspace">
@@ -369,18 +370,18 @@ function createAppShell(): void {
           <section class="rail-card rail-card-primary">
             <div class="rail-head">
               <div>
-                <p class="panel-kicker">TerraBit browser test</p>
-                <h2>Sentinel-2 cloudless explorer</h2>
+                <p class="panel-kicker">Demo</p>
+                <h2>terrabit binarized embeddings demo</h2>
               </div>
               <button id="controls-toggle" class="ghost rail-toggle" type="button" aria-expanded="true">Hide</button>
             </div>
-            <p class="hint hint-rail">Draw AOI with button or Shift-drag. Click inside for positives. Escape clears points.</p>
+            <p class="hint hint-rail">Draw a region with the button or Shift-drag. Click inside for positives. Escape clears points.</p>
             <p id="status" class="status">${state.status}</p>
             <div class="actions rail-actions">
-              <button id="draw-aoi" class="primary" type="button">Draw AOI</button>
+              <button id="draw-aoi" class="primary" type="button">Draw region</button>
               <button id="rerun-search" class="primary" type="button">Run search</button>
               <button id="clear-positives" class="ghost" type="button">Clear points</button>
-              <button id="clear-aoi" class="ghost" type="button">Clear AOI</button>
+              <button id="clear-aoi" class="ghost" type="button">Clear region</button>
             </div>
           </section>
 
@@ -388,7 +389,7 @@ function createAppShell(): void {
             <p class="panel-kicker">Footprint</p>
             <dl class="stats">
               <div>
-                <dt>AOI shards</dt>
+                <dt>Region shards</dt>
                 <dd id="shard-count">0</dd>
               </div>
               <div>
@@ -406,7 +407,7 @@ function createAppShell(): void {
         <div class="map-panel">
           <div class="map-topbar">
             <div>
-              <p class="panel-kicker">AOI canvas</p>
+              <p class="panel-kicker">Region canvas</p>
               <h2>Map</h2>
             </div>
             <p class="hint">Shift-drag still works. Use the left rail when you want explicit controls.</p>
@@ -494,7 +495,7 @@ function updateView(): void {
   els.controlRail.classList.toggle("is-collapsed", state.controlsCollapsed);
   els.controlsToggle.textContent = state.controlsCollapsed ? "Show" : "Hide";
   els.controlsToggle.setAttribute("aria-expanded", String(!state.controlsCollapsed));
-  els.drawAoi.textContent = drawModeArmed ? "Drawing..." : "Draw AOI";
+  els.drawAoi.textContent = drawModeArmed ? "Drawing..." : "Draw region";
   els.drawAoi.classList.toggle("is-armed", drawModeArmed);
   els.status.textContent = state.status;
   els.shardCount.textContent = new Intl.NumberFormat().format(state.shardCount);
@@ -603,7 +604,7 @@ async function queryManifestAndLoadCandidates(bbox: BBox): Promise<void> {
     updateView();
 
     if (!manifestRows.length) {
-      setStatus("No shards intersect that AOI.");
+      setStatus("No shards intersect that region.");
       return;
     }
 
@@ -630,14 +631,14 @@ async function queryManifestAndLoadCandidates(bbox: BBox): Promise<void> {
     state.candidateCount = state.candidateRows.length;
     setStatus(
       state.candidateRows.length
-        ? "AOI loaded. Click positive points inside the box to rank similar patches."
-        : "AOI loaded, but no patch rows were returned.",
+        ? "Region loaded. Click positive points inside the box to rank similar patches."
+        : "Region loaded, but no patch rows were returned.",
     );
     renderAoiBox(bbox);
     updateView();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setStatus(`Failed to load AOI data: ${message}`);
+    setStatus(`Failed to load region data: ${message}`);
   }
 }
 
@@ -908,7 +909,7 @@ function attachMap(): void {
     mapRef.dragging.disable();
     mapRef.getContainer().style.cursor = "crosshair";
     syncDraftRectangle(startLatLng);
-    setStatus("Dragging AOI. Release to load matching patches.");
+    setStatus("Dragging region. Release to load matching patches.");
     updateView();
   };
 
@@ -918,7 +919,7 @@ function attachMap(): void {
     }
     if (!drawMoved) {
       cancelAoiDraft();
-      setStatus("AOI draw canceled. Click Draw AOI or Shift-drag to try again.");
+      setStatus("Region draw canceled. Click Draw region or Shift-drag to try again.");
       return;
     }
     const south = Math.min(drawStartLatLng.lat, endLatLng.lat);
@@ -991,11 +992,11 @@ function attachMap(): void {
   getElements().drawAoi?.addEventListener("click", () => {
     drawModeArmed = !drawModeArmed;
     if (drawModeArmed) {
-      setStatus("Draw mode armed. Drag on the map to define an AOI.");
+      setStatus("Draw mode armed. Drag on the map to define a region.");
       map.getContainer().style.cursor = "crosshair";
     } else {
       map.getContainer().style.cursor = "";
-      setStatus(state.bbox ? "AOI kept. Click inside it to add positive points." : "Draw mode off.");
+      setStatus(state.bbox ? "Region kept. Click inside it to add positive points." : "Draw mode off.");
     }
     updateView();
   });
@@ -1021,7 +1022,7 @@ function attachMap(): void {
     state.candidateCount = 0;
     drawModeArmed = false;
     clearLayers();
-    setStatus("AOI cleared.");
+    setStatus("Region cleared.");
     updateView();
   });
 
@@ -1037,7 +1038,7 @@ function attachMap(): void {
     }
     if (drawStartLatLng) {
       cancelAoiDraft();
-      setStatus("AOI draw canceled.");
+      setStatus("Region draw canceled.");
       updateView();
       return;
     }
@@ -1051,7 +1052,7 @@ function attachMap(): void {
     if (!state.positivePoints.length) {
       return;
     }
-    clearPositiveSelection("Positive points cleared. AOI kept.");
+    clearPositiveSelection("Positive points cleared. Region kept.");
   });
 }
 
