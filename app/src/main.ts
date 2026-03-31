@@ -9,7 +9,7 @@ import "leaflet/dist/leaflet.css";
 import "./styles.css";
 
 const MANIFEST_URL =
-  "https://data.source.coop/geovibes/terrabit/clay-v1_5-binary/manifest.parquet";
+  "https://data.source.coop/geovibes/terrabit/clay-v1_5-binary-sentinel-2/manifest.parquet";
 const DEFAULT_TOP_K = 10;
 const MAX_MANIFEST_SHARDS = 256;
 const MAX_AOI_ROWS = 50000;

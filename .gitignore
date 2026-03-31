@@ -1,4 +1,6 @@
 embeddings/
+upload.sh
+download.sh
 results/
 *.bak*
 

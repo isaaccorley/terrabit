@@ -4,7 +4,8 @@ The script reads every Parquet file under an input directory, assigns each row
 to a fixed lat/lon delivery tile using the bbox centroid, and rewrites rows
 into a new Hive-style directory tree. It is designed for client-side AOI
 retrieval, where the physical shard layout should be tuned for fetch size and
-manifest intersection rather than inherited source partitions.
+manifest intersection rather than inherited source partitions. For download
+speed, prefer fewer larger shards over many tiny spatial cells.
 
 Default layout:
     tile_x=<int>/tile_y=<int>/year=<year>/part-00000.parquet
@@ -13,7 +14,7 @@ Example:
     uv run python scripts/repartition_dataset.py \
         results/quantized_dataset_full_allmethods_j8/binary \
         -o results/quantized_dataset_binary_grid \
-        --tile-size-deg 0.25 \
+        --tile-size-deg 1.0 \
         --carry-partitions year \
         --keep-columns chips_id,embedding,bbox
 """
@@ -379,8 +380,8 @@ def main() -> None:
     parser.add_argument(
         "--tile-size-deg",
         type=float,
-        default=0.25,
-        help="Square delivery tile size in degrees (default: 0.25)",
+        default=1.0,
+        help="Square delivery tile size in degrees (default: 1.0)",
     )
     parser.add_argument(
         "--tile-width-deg",
@@ -420,7 +421,7 @@ def main() -> None:
     parser.add_argument(
         "--compression",
         choices=("none", "snappy", "zstd"),
-        default="snappy",
+        default="zstd",
         help="Compression codec for output Parquet files",
     )
     parser.add_argument(
@@ -432,7 +433,7 @@ def main() -> None:
     parser.add_argument(
         "--max-rows-per-file",
         type=int,
-        default=5000,
+        default=50000,
         help="Target maximum rows per output shard file",
     )
     parser.add_argument(
