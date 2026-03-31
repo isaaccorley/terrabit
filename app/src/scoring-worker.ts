@@ -8,7 +8,6 @@ type ScoreMessage = {
   requestId: number;
   exemplars: Uint8Array[];
   excludeIndices: number[];
-  topK: number;
 };
 
 type WorkerMessage = InitMessage | ScoreMessage;
@@ -40,13 +39,8 @@ function hammingDistance(a: Uint8Array, b: Uint8Array): number {
   return total;
 }
 
-function scoreCandidates(
-  exemplars: Uint8Array[],
-  excludeIndices: Set<number>,
-  topK: number,
-): ScoredResult[] {
-  const best: ScoredResult[] = [];
-
+function scoreCandidates(exemplars: Uint8Array[], excludeIndices: Set<number>): ScoredResult[] {
+  const results: ScoredResult[] = [];
   for (let index = 0; index < candidateEmbeddings.length; index += 1) {
     if (excludeIndices.has(index)) {
       continue;
@@ -56,23 +50,11 @@ function scoreCandidates(
     for (const exemplar of exemplars) {
       score += hammingDistance(candidate, exemplar);
     }
-    score /= exemplars.length;
-
-    if (best.length < topK) {
-      best.push({ index, score });
-      best.sort((a, b) => b.score - a.score || b.index - a.index);
-      continue;
-    }
-
-    const worst = best[0];
-    if (score < worst.score || (score === worst.score && index < worst.index)) {
-      best[0] = { index, score };
-      best.sort((a, b) => b.score - a.score || b.index - a.index);
-    }
+    results.push({ index, score: score / exemplars.length });
   }
 
-  best.sort((a, b) => a.score - b.score || a.index - b.index);
-  return best;
+  results.sort((a, b) => a.score - b.score || a.index - b.index);
+  return results;
 }
 
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {
@@ -82,7 +64,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
   }
 
   const exemplars = event.data.exemplars.map((embedding) => new Uint8Array(embedding));
-  const results = scoreCandidates(exemplars, new Set(event.data.excludeIndices), event.data.topK);
+  const results = scoreCandidates(exemplars, new Set(event.data.excludeIndices));
   self.postMessage({
     type: "score-result",
     requestId: event.data.requestId,

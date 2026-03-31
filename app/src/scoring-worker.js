@@ -18,8 +18,8 @@ function hammingDistance(a, b) {
     }
     return total;
 }
-function scoreCandidates(exemplars, excludeIndices, topK) {
-    const best = [];
+function scoreCandidates(exemplars, excludeIndices) {
+    const results = [];
     for (let index = 0; index < candidateEmbeddings.length; index += 1) {
         if (excludeIndices.has(index)) {
             continue;
@@ -29,20 +29,10 @@ function scoreCandidates(exemplars, excludeIndices, topK) {
         for (const exemplar of exemplars) {
             score += hammingDistance(candidate, exemplar);
         }
-        score /= exemplars.length;
-        if (best.length < topK) {
-            best.push({ index, score });
-            best.sort((a, b) => b.score - a.score || b.index - a.index);
-            continue;
-        }
-        const worst = best[0];
-        if (score < worst.score || (score === worst.score && index < worst.index)) {
-            best[0] = { index, score };
-            best.sort((a, b) => b.score - a.score || b.index - a.index);
-        }
+        results.push({ index, score: score / exemplars.length });
     }
-    best.sort((a, b) => a.score - b.score || a.index - b.index);
-    return best;
+    results.sort((a, b) => a.score - b.score || a.index - b.index);
+    return results;
 }
 self.onmessage = (event) => {
     if (event.data.type === "init") {
@@ -50,7 +40,7 @@ self.onmessage = (event) => {
         return;
     }
     const exemplars = event.data.exemplars.map((embedding) => new Uint8Array(embedding));
-    const results = scoreCandidates(exemplars, new Set(event.data.excludeIndices), event.data.topK);
+    const results = scoreCandidates(exemplars, new Set(event.data.excludeIndices));
     self.postMessage({
         type: "score-result",
         requestId: event.data.requestId,

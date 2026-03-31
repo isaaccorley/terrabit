@@ -11,6 +11,7 @@ import "./styles.css";
 const MANIFEST_URL =
   "https://data.source.coop/geovibes/terrabit/clay-v1_5-binary-sentinel-2/manifest.parquet";
 const DEFAULT_TOP_K = 10;
+const MAX_TOP_K = 50;
 const MAX_MANIFEST_SHARDS = 256;
 const MAX_AOI_ROWS = 50000;
 const SENTINEL_2024_TILES =
@@ -72,6 +73,8 @@ type AppState = {
   results: RankedRow[];
   shardCount: number;
   candidateCount: number;
+  topK: number;
+  showHeatmap: boolean;
   isBusy: boolean;
 };
 
@@ -92,6 +95,8 @@ const state: AppState = {
   results: [],
   shardCount: 0,
   candidateCount: 0,
+  topK: DEFAULT_TOP_K,
+  showHeatmap: false,
   isBusy: false,
 };
 
@@ -101,6 +106,8 @@ let positiveLayer: any = null;
 let positiveMatchLayer: any = null;
 let aoiLayer: any = null;
 let resultLayer: any = null;
+let heatmapLayer: any = null;
+let heatmapRenderer: any = null;
 let previewLayer: any = null;
 let mapRef: any = null;
 let drawStartLatLng: { lat: number; lng: number } | null = null;
@@ -311,7 +318,7 @@ function scoreCandidatesSync(exemplars: CandidateRow[]): RankedRow[] {
     });
   }
   results.sort((a, b) => a.score - b.score || a.chips_id.localeCompare(b.chips_id));
-  return results.slice(0, DEFAULT_TOP_K);
+  return results;
 }
 
 async function scoreCandidatesInWorker(exemplars: CandidateRow[]): Promise<RankedRow[]> {
@@ -346,7 +353,6 @@ async function scoreCandidatesInWorker(exemplars: CandidateRow[]): Promise<Ranke
       requestId,
       exemplars: exemplarBuffers,
       excludeIndices: [...excludeIndices],
-      topK: DEFAULT_TOP_K,
     });
   });
 
@@ -425,8 +431,18 @@ function createAppShell(): void {
 
           <section class="card list-card">
             <div class="card-head">
-              <p class="panel-kicker">Top-k</p>
+              <p class="panel-kicker">Ranking</p>
               <span id="result-count">0 matches</span>
+            </div>
+            <div class="ranking-controls">
+              <label class="range-control" for="topk-slider">
+                <span>Top-k <strong id="topk-value">${DEFAULT_TOP_K}</strong></span>
+                <input id="topk-slider" type="range" min="1" max="${MAX_TOP_K}" value="${DEFAULT_TOP_K}" />
+              </label>
+              <label class="toggle-control" for="heatmap-toggle">
+                <span>Heatmap</span>
+                <input id="heatmap-toggle" type="checkbox" />
+              </label>
             </div>
             <ol id="result-list" class="result-list"></ol>
           </section>
@@ -445,6 +461,9 @@ function getElements() {
     positiveList: document.querySelector<HTMLOListElement>("#positive-list"),
     resultCount: document.querySelector<HTMLElement>("#result-count"),
     resultList: document.querySelector<HTMLOListElement>("#result-list"),
+    topkSlider: document.querySelector<HTMLInputElement>("#topk-slider"),
+    topkValue: document.querySelector<HTMLElement>("#topk-value"),
+    heatmapToggle: document.querySelector<HTMLInputElement>("#heatmap-toggle"),
     controlRail: document.querySelector<HTMLElement>(".control-rail"),
     controlsToggle: document.querySelector<HTMLButtonElement>("#controls-toggle"),
     drawAoi: document.querySelector<HTMLButtonElement>("#draw-aoi"),
@@ -488,7 +507,7 @@ function setStatus(message: string): void {
 
 function updateView(): void {
   const els = getElements();
-  if (!els.status || !els.shardCount || !els.candidateCount || !els.positiveCount || !els.positiveList || !els.resultCount || !els.resultList || !els.controlRail || !els.controlsToggle || !els.drawAoi) {
+  if (!els.status || !els.shardCount || !els.candidateCount || !els.positiveCount || !els.positiveList || !els.resultCount || !els.resultList || !els.topkSlider || !els.topkValue || !els.heatmapToggle || !els.controlRail || !els.controlsToggle || !els.drawAoi) {
     return;
   }
 
@@ -501,7 +520,13 @@ function updateView(): void {
   els.shardCount.textContent = new Intl.NumberFormat().format(state.shardCount);
   els.candidateCount.textContent = new Intl.NumberFormat().format(state.candidateCount);
   els.positiveCount.textContent = new Intl.NumberFormat().format(state.positivePoints.length);
-  els.resultCount.textContent = `${new Intl.NumberFormat().format(state.results.length)} matches`;
+  els.topkSlider.value = String(state.topK);
+  els.topkValue.textContent = String(state.topK);
+  els.heatmapToggle.checked = state.showHeatmap;
+  const visibleResults = state.results.slice(0, state.topK);
+  els.resultCount.textContent = state.showHeatmap
+    ? `${new Intl.NumberFormat().format(state.results.length)} scored`
+    : `${new Intl.NumberFormat().format(visibleResults.length)} shown of ${new Intl.NumberFormat().format(state.results.length)}`;
 
   els.positiveList.innerHTML = "";
   for (const [index, point] of state.positivePoints.entries()) {
@@ -529,7 +554,7 @@ function updateView(): void {
   });
 
   els.resultList.innerHTML = "";
-  for (const [index, result] of state.results.slice(0, DEFAULT_TOP_K).entries()) {
+  for (const [index, result] of visibleResults.entries()) {
     const li = document.createElement("li");
     li.className = "list-item";
     li.style.setProperty("--item-index", String(index));
@@ -703,6 +728,7 @@ function clearLayers(): void {
   positiveLayer?.clearLayers();
   positiveMatchLayer?.clearLayers();
   resultLayer?.clearLayers();
+  heatmapLayer?.clearLayers();
   previewLayer?.clearLayers();
   aoiLayer?.clearLayers();
   draftRectangle?.remove();
@@ -778,25 +804,50 @@ function renderPositiveMatches(): void {
 }
 
 function renderResultsOnMap(): void {
-  if (!resultLayer) {
+  if (!resultLayer || !heatmapLayer) {
     return;
   }
   resultLayer.clearLayers();
-  for (const result of state.results) {
+  heatmapLayer.clearLayers();
+
+  const resultsToRender = state.showHeatmap ? state.results : state.results.slice(0, state.topK);
+  if (!resultsToRender.length) {
+    return;
+  }
+
+  const scores = resultsToRender.map((result) => result.score);
+  const minScore = Math.min(...scores);
+  const maxScore = Math.max(...scores);
+  const scoreSpan = maxScore - minScore || 1;
+
+  for (const result of resultsToRender) {
+    const t = (result.score - minScore) / scoreSpan;
+    const fillColor = state.showHeatmap ? interpolateHeatColor(t) : "#f25c54";
     L.rectangle(
       [
         [result.bbox.south, result.bbox.west],
         [result.bbox.north, result.bbox.east],
       ],
       {
-        color: "#f25c54",
-        weight: 1,
-        fillOpacity: 0.02,
+        color: fillColor,
+        fillColor,
+        fillOpacity: state.showHeatmap ? 0.16 + t * 0.18 : 0.02,
+        opacity: state.showHeatmap ? 0.45 + t * 0.4 : 0.9,
+        renderer: state.showHeatmap ? heatmapRenderer : undefined,
+        weight: state.showHeatmap ? 0.25 : 1,
       },
     )
       .bindPopup(`<strong>${result.chips_id}</strong><br />score ${result.score.toFixed(1)}`)
-      .addTo(resultLayer);
+      .addTo(state.showHeatmap ? heatmapLayer : resultLayer);
   }
+}
+
+function interpolateHeatColor(t: number): string {
+  const clamped = Math.max(0, Math.min(1, t));
+  const start = { r: 130, g: 212, b: 202 };
+  const end = { r: 242, g: 92, b: 84 };
+  const mix = (a: number, b: number): number => Math.round(a + (b - a) * clamped);
+  return `rgb(${mix(start.r, end.r)} ${mix(start.g, end.g)} ${mix(start.b, end.b)})`;
 }
 
 function renderHoverPreview(result: RankedRow | null): void {
@@ -868,6 +919,8 @@ function attachMap(): void {
   positiveLayer = new L.FeatureGroup().addTo(map);
   positiveMatchLayer = new L.FeatureGroup().addTo(map);
   resultLayer = new L.FeatureGroup().addTo(map);
+  heatmapRenderer = L.canvas({ padding: 0.5 });
+  heatmapLayer = new L.FeatureGroup().addTo(map);
   previewLayer = new L.FeatureGroup().addTo(map);
 
   const syncDraftRectangle = (endLatLng: { lat: number; lng: number }): void => {
@@ -1006,6 +1059,20 @@ function attachMap(): void {
     updateView();
   });
 
+  getElements().topkSlider?.addEventListener("input", (event) => {
+    const target = event.currentTarget as HTMLInputElement;
+    state.topK = Number(target.value);
+    renderResultsOnMap();
+    updateView();
+  });
+
+  getElements().heatmapToggle?.addEventListener("change", (event) => {
+    const target = event.currentTarget as HTMLInputElement;
+    state.showHeatmap = target.checked;
+    renderResultsOnMap();
+    updateView();
+  });
+
   getElements().clearPositives?.addEventListener("click", () => {
     clearPositiveSelection();
   });
@@ -1020,6 +1087,8 @@ function attachMap(): void {
     state.results = [];
     state.shardCount = 0;
     state.candidateCount = 0;
+    state.topK = DEFAULT_TOP_K;
+    state.showHeatmap = false;
     drawModeArmed = false;
     clearLayers();
     setStatus("Region cleared.");

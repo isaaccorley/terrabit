@@ -8,6 +8,7 @@ import "leaflet/dist/leaflet.css";
 import "./styles.css";
 const MANIFEST_URL = "https://data.source.coop/geovibes/terrabit/clay-v1_5-binary-sentinel-2/manifest.parquet";
 const DEFAULT_TOP_K = 10;
+const MAX_TOP_K = 50;
 const MAX_MANIFEST_SHARDS = 256;
 const MAX_AOI_ROWS = 50000;
 const SENTINEL_2024_TILES = "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg";
@@ -26,6 +27,8 @@ const state = {
     results: [],
     shardCount: 0,
     candidateCount: 0,
+    topK: DEFAULT_TOP_K,
+    showHeatmap: false,
     isBusy: false,
 };
 let dbPromise = null;
@@ -34,6 +37,8 @@ let positiveLayer = null;
 let positiveMatchLayer = null;
 let aoiLayer = null;
 let resultLayer = null;
+let heatmapLayer = null;
+let heatmapRenderer = null;
 let previewLayer = null;
 let mapRef = null;
 let drawStartLatLng = null;
@@ -220,7 +225,7 @@ function scoreCandidatesSync(exemplars) {
         });
     }
     results.sort((a, b) => a.score - b.score || a.chips_id.localeCompare(b.chips_id));
-    return results.slice(0, DEFAULT_TOP_K);
+    return results;
 }
 async function scoreCandidatesInWorker(exemplars) {
     if (!scoringWorkerReady) {
@@ -252,7 +257,6 @@ async function scoreCandidatesInWorker(exemplars) {
             requestId,
             exemplars: exemplarBuffers,
             excludeIndices: [...excludeIndices],
-            topK: DEFAULT_TOP_K,
         });
     });
     return results.map(({ index, score }) => ({
@@ -328,8 +332,18 @@ function createAppShell() {
 
           <section class="card list-card">
             <div class="card-head">
-              <p class="panel-kicker">Top-k</p>
+              <p class="panel-kicker">Ranking</p>
               <span id="result-count">0 matches</span>
+            </div>
+            <div class="ranking-controls">
+              <label class="range-control" for="topk-slider">
+                <span>Top-k <strong id="topk-value">${DEFAULT_TOP_K}</strong></span>
+                <input id="topk-slider" type="range" min="1" max="${MAX_TOP_K}" value="${DEFAULT_TOP_K}" />
+              </label>
+              <label class="toggle-control" for="heatmap-toggle">
+                <span>Heatmap</span>
+                <input id="heatmap-toggle" type="checkbox" />
+              </label>
             </div>
             <ol id="result-list" class="result-list"></ol>
           </section>
@@ -347,6 +361,9 @@ function getElements() {
         positiveList: document.querySelector("#positive-list"),
         resultCount: document.querySelector("#result-count"),
         resultList: document.querySelector("#result-list"),
+        topkSlider: document.querySelector("#topk-slider"),
+        topkValue: document.querySelector("#topk-value"),
+        heatmapToggle: document.querySelector("#heatmap-toggle"),
         controlRail: document.querySelector(".control-rail"),
         controlsToggle: document.querySelector("#controls-toggle"),
         drawAoi: document.querySelector("#draw-aoi"),
@@ -387,7 +404,7 @@ function setStatus(message) {
 }
 function updateView() {
     const els = getElements();
-    if (!els.status || !els.shardCount || !els.candidateCount || !els.positiveCount || !els.positiveList || !els.resultCount || !els.resultList || !els.controlRail || !els.controlsToggle || !els.drawAoi) {
+    if (!els.status || !els.shardCount || !els.candidateCount || !els.positiveCount || !els.positiveList || !els.resultCount || !els.resultList || !els.topkSlider || !els.topkValue || !els.heatmapToggle || !els.controlRail || !els.controlsToggle || !els.drawAoi) {
         return;
     }
     els.controlRail.classList.toggle("is-collapsed", state.controlsCollapsed);
@@ -399,7 +416,13 @@ function updateView() {
     els.shardCount.textContent = new Intl.NumberFormat().format(state.shardCount);
     els.candidateCount.textContent = new Intl.NumberFormat().format(state.candidateCount);
     els.positiveCount.textContent = new Intl.NumberFormat().format(state.positivePoints.length);
-    els.resultCount.textContent = `${new Intl.NumberFormat().format(state.results.length)} matches`;
+    els.topkSlider.value = String(state.topK);
+    els.topkValue.textContent = String(state.topK);
+    els.heatmapToggle.checked = state.showHeatmap;
+    const visibleResults = state.results.slice(0, state.topK);
+    els.resultCount.textContent = state.showHeatmap
+        ? `${new Intl.NumberFormat().format(state.results.length)} scored`
+        : `${new Intl.NumberFormat().format(visibleResults.length)} shown of ${new Intl.NumberFormat().format(state.results.length)}`;
     els.positiveList.innerHTML = "";
     for (const [index, point] of state.positivePoints.entries()) {
         const li = document.createElement("li");
@@ -424,7 +447,7 @@ function updateView() {
         });
     });
     els.resultList.innerHTML = "";
-    for (const [index, result] of state.results.slice(0, DEFAULT_TOP_K).entries()) {
+    for (const [index, result] of visibleResults.entries()) {
         const li = document.createElement("li");
         li.className = "list-item";
         li.style.setProperty("--item-index", String(index));
@@ -572,6 +595,7 @@ function clearLayers() {
     positiveLayer?.clearLayers();
     positiveMatchLayer?.clearLayers();
     resultLayer?.clearLayers();
+    heatmapLayer?.clearLayers();
     previewLayer?.clearLayers();
     aoiLayer?.clearLayers();
     draftRectangle?.remove();
@@ -639,22 +663,43 @@ function renderPositiveMatches() {
     }
 }
 function renderResultsOnMap() {
-    if (!resultLayer) {
+    if (!resultLayer || !heatmapLayer) {
         return;
     }
     resultLayer.clearLayers();
-    for (const result of state.results) {
+    heatmapLayer.clearLayers();
+    const resultsToRender = state.showHeatmap ? state.results : state.results.slice(0, state.topK);
+    if (!resultsToRender.length) {
+        return;
+    }
+    const scores = resultsToRender.map((result) => result.score);
+    const minScore = Math.min(...scores);
+    const maxScore = Math.max(...scores);
+    const scoreSpan = maxScore - minScore || 1;
+    for (const result of resultsToRender) {
+        const t = (result.score - minScore) / scoreSpan;
+        const fillColor = state.showHeatmap ? interpolateHeatColor(t) : "#f25c54";
         L.rectangle([
             [result.bbox.south, result.bbox.west],
             [result.bbox.north, result.bbox.east],
         ], {
-            color: "#f25c54",
-            weight: 1,
-            fillOpacity: 0.02,
+            color: fillColor,
+            fillColor,
+            fillOpacity: state.showHeatmap ? 0.16 + t * 0.18 : 0.02,
+            opacity: state.showHeatmap ? 0.45 + t * 0.4 : 0.9,
+            renderer: state.showHeatmap ? heatmapRenderer : undefined,
+            weight: state.showHeatmap ? 0.25 : 1,
         })
             .bindPopup(`<strong>${result.chips_id}</strong><br />score ${result.score.toFixed(1)}`)
-            .addTo(resultLayer);
+            .addTo(state.showHeatmap ? heatmapLayer : resultLayer);
     }
+}
+function interpolateHeatColor(t) {
+    const clamped = Math.max(0, Math.min(1, t));
+    const start = { r: 130, g: 212, b: 202 };
+    const end = { r: 242, g: 92, b: 84 };
+    const mix = (a, b) => Math.round(a + (b - a) * clamped);
+    return `rgb(${mix(start.r, end.r)} ${mix(start.g, end.g)} ${mix(start.b, end.b)})`;
 }
 function renderHoverPreview(result) {
     if (!previewLayer) {
@@ -717,6 +762,8 @@ function attachMap() {
     positiveLayer = new L.FeatureGroup().addTo(map);
     positiveMatchLayer = new L.FeatureGroup().addTo(map);
     resultLayer = new L.FeatureGroup().addTo(map);
+    heatmapRenderer = L.canvas({ padding: 0.5 });
+    heatmapLayer = new L.FeatureGroup().addTo(map);
     previewLayer = new L.FeatureGroup().addTo(map);
     const syncDraftRectangle = (endLatLng) => {
         if (!drawStartLatLng) {
@@ -841,6 +888,18 @@ function attachMap() {
         renderResultsOnMap();
         updateView();
     });
+    getElements().topkSlider?.addEventListener("input", (event) => {
+        const target = event.currentTarget;
+        state.topK = Number(target.value);
+        renderResultsOnMap();
+        updateView();
+    });
+    getElements().heatmapToggle?.addEventListener("change", (event) => {
+        const target = event.currentTarget;
+        state.showHeatmap = target.checked;
+        renderResultsOnMap();
+        updateView();
+    });
     getElements().clearPositives?.addEventListener("click", () => {
         clearPositiveSelection();
     });
@@ -854,6 +913,8 @@ function attachMap() {
         state.results = [];
         state.shardCount = 0;
         state.candidateCount = 0;
+        state.topK = DEFAULT_TOP_K;
+        state.showHeatmap = false;
         drawModeArmed = false;
         clearLayers();
         setStatus("Region cleared.");

@@ -307,6 +307,56 @@ h2 {
   gap: 12px;
 }
 
+.ranking-controls {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.range-control,
+.toggle-control {
+  display: grid;
+  gap: 10px;
+}
+
+.range-control {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.range-control strong {
+  color: var(--text);
+  font-family: "Instrument Serif", serif;
+  font-size: 1.2rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.range-control input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.toggle-control {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.toggle-control input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--signal);
+}
+
 .point-list,
 .result-list {
   list-style: none;
