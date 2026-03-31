@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,24 @@ from terrabit.io import iter_parquet_files
 from terrabit.quantization import QuantizationMethod, quantize
 
 console = Console()
+
+
+@dataclass(frozen=True)
+class ParquetWriteOptions:
+    compression: str | None = "snappy"
+    compression_level: int | None = None
+    use_byte_stream_split: bool = False
+    row_group_size: int | None = None
+
+    @property
+    def use_dictionary(self) -> bool:
+        return not self.use_byte_stream_split
+
+    @property
+    def data_page_version(self) -> str:
+        return "2.0" if self.use_byte_stream_split else "1.0"
+
+
 ALL_METHODS: tuple[QuantizationMethod, ...] = (
     "float16",
     "fp8",
@@ -97,12 +116,30 @@ def _to_fixed_size_list(values_2d: np.ndarray) -> pa.FixedSizeListArray:
     return pa.FixedSizeListArray.from_arrays(value_array, values_2d.shape[1])
 
 
+def _write_parquet_table(
+    table: pa.Table,
+    out_file: Path,
+    write_options: ParquetWriteOptions,
+) -> None:
+    kwargs: dict[str, Any] = {
+        "compression_level": write_options.compression_level,
+        "use_byte_stream_split": write_options.use_byte_stream_split,
+        "use_dictionary": write_options.use_dictionary,
+        "data_page_version": write_options.data_page_version,
+        "row_group_size": write_options.row_group_size,
+    }
+    if write_options.compression is not None:
+        kwargs["compression"] = write_options.compression
+    pq.write_table(table, out_file, **kwargs)
+
+
 def _process_one_file(
     src_file: str,
     src_root: str,
     out_root: str,
     methods: tuple[QuantizationMethod, ...],
     embedding_col: str,
+    write_options: ParquetWriteOptions,
 ) -> dict[str, Any]:
     threadpool_limits(limits=1)
 
@@ -155,7 +192,7 @@ def _process_one_file(
 
         out_file = output_root / method / rel_path
         out_file.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(quantized_table, out_file)
+        _write_parquet_table(quantized_table, out_file, write_options)
 
         output_files.append(str(out_file))
 
@@ -199,6 +236,29 @@ def main() -> None:
         default=0,
         help="If >0, process only first N parquet files (for smoke tests)",
     )
+    parser.add_argument(
+        "--parquet-compression",
+        choices=("none", "snappy", "zstd"),
+        default="snappy",
+        help="Parquet column compression codec",
+    )
+    parser.add_argument(
+        "--parquet-compression-level",
+        type=int,
+        default=None,
+        help="Optional Parquet compression level",
+    )
+    parser.add_argument(
+        "--parquet-byte-stream-split",
+        action="store_true",
+        help="Enable Parquet BYTE_STREAM_SPLIT encoding before compression",
+    )
+    parser.add_argument(
+        "--parquet-row-group-size",
+        type=int,
+        default=None,
+        help="Optional Parquet row group size",
+    )
     args = parser.parse_args()
 
     methods = tuple(m.strip() for m in args.methods.split(",") if m.strip())
@@ -215,6 +275,13 @@ def main() -> None:
     if not file_paths:
         raise ValueError("No parquet files found")
 
+    write_options = ParquetWriteOptions(
+        compression=None if args.parquet_compression == "none" else args.parquet_compression,
+        compression_level=args.parquet_compression_level,
+        use_byte_stream_split=args.parquet_byte_stream_split,
+        row_group_size=args.parquet_row_group_size,
+    )
+
     worker_count = _resolve_jobs(
         requested_jobs=args.jobs,
         n_files=len(file_paths),
@@ -226,6 +293,13 @@ def main() -> None:
     console.print(f"output root: {out_root}")
     console.print(f"methods: {methods}")
     console.print(f"files: {len(file_paths)}  workers: {worker_count}")
+    console.print(
+        "parquet: "
+        f"compression={write_options.compression or 'none'}  "
+        f"byte_stream_split={write_options.use_byte_stream_split}  "
+        f"compression_level={write_options.compression_level}  "
+        f"row_group_size={write_options.row_group_size}"
+    )
 
     completed = 0
     total_rows = 0
@@ -238,6 +312,7 @@ def main() -> None:
                 str(out_root),
                 methods,
                 args.embedding_col,
+                write_options,
             )
             for file_path in file_paths
         ]

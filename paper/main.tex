@@ -35,11 +35,11 @@
 \maketitle
 
 \begin{abstract}
-	Geospatial foundation models produce planet-scale \emph{embedding lakes}---large, centralized stores of precomputed vectors analogous to data lakes---whose storage and retrieval costs dominate deployment budgets.
-	Recent systems distribute global embedding fields at \texttt{int8} precision, but the quality--cost trade-off below 8 bits remains unexplored for remote sensing embeddings.
-	We present \method{}, a post-hoc quantization study spanning \texttt{float16} through 1-bit \texttt{binary} on \num{49785116} real 1024D embeddings (\textit{183\,GiB}), evaluated with label-free neighborhood-preservation metrics grounded in intrinsic-dimension analysis.
-	\texttt{Int4} retains 91\% kNN recall at $6.3\times$ compression; \texttt{binary} achieves $16.5\times$ compression with 65\% recall, sufficient for coarse-stage candidate generation.
-	We additionally benchmark TurboQuant~\citep{zandieh2025turboquant}, finding that its random orthogonal pre-rotation helps most in the ultra-low-bit regime: 2-bit recall rises from 0.54 to 0.71, while the advantage shrinks to near zero by 8 bits.
+  Geospatial foundation models produce planet-scale \emph{embedding lakes}---large, centralized stores of precomputed vectors analogous to data lakes---whose storage and retrieval costs dominate deployment budgets.
+  Recent systems distribute global embedding fields at \texttt{int8} precision, but the quality--cost trade-off below 8 bits remains unexplored for remote sensing embeddings.
+  We present \method{}, a post-hoc quantization study spanning \texttt{float16} through 1-bit \texttt{binary} on \num{49785116} real 1024D embeddings (\textit{183\,GiB}), evaluated with label-free neighborhood-preservation metrics grounded in intrinsic-dimension analysis.
+  \texttt{Int4} retains 91\% kNN recall at $6.3\times$ compression; \texttt{binary} achieves $16.5\times$ compression with 65\% recall, sufficient for coarse-stage candidate generation.
+  We additionally benchmark TurboQuant~\citep{zandieh2025turboquant}, finding that its random orthogonal pre-rotation helps most in the ultra-low-bit regime: 2-bit recall rises from 0.54 to 0.71, while the advantage shrinks to near zero by 8 bits.
 \end{abstract}
 
 \section{Introduction}
@@ -68,14 +68,14 @@ Our contributions are:
 (5)~an empirical comparison showing that rotation-based quantization (TurboQuant) improves recall most at 2--3 bits, with diminishing gains as precision increases.
 
 \afterpage{%
-	\begin{figure}[!t]
-		\centering
-		\includegraphics[width=\linewidth]{figures/storage.pdf}
-		\caption{\textbf{Storage footprint per quantization method.}
-			Original \texttt{float32} corpus occupies \textit{183\,GiB}.
-			\texttt{Binary} reduces this to \textit{11\,GiB} ($16.5\times$); \texttt{int4} to \textit{29\,GiB} ($6.3\times$).}
-		\label{fig:storage}
-	\end{figure}
+  \begin{figure}[!t]
+    \centering
+    \includegraphics[width=\linewidth]{figures/storage.pdf}
+    \caption{\textbf{Storage footprint per quantization method.}
+      Original \texttt{float32} corpus occupies \textit{183\,GiB}.
+    \texttt{Binary} reduces this to \textit{11\,GiB} ($16.5\times$); \texttt{int4} to \textit{29\,GiB} ($6.3\times$).}
+    \label{fig:storage}
+  \end{figure}
 }
 
 \section{Related Work}
@@ -92,6 +92,7 @@ LLM.\texttt{int8}()~\citep{dettmers2022int8} demonstrates that aggressive quanti
 TurboQuant~\citep{zandieh2025turboquant} applies a random orthogonal pre-rotation before symmetric quantization to approach rate-distortion bounds in online vector quantization.
 For binary coding, prior work spans angular quantization for cosine retrieval~\citep{gong2012angular}, deep visual-semantic quantization with learned codebooks~\citep{cao2017dvsq}, and autoencoder-based near-lossless binarization in NLP~\citep{tissier2019nearlossless}.
 Orthogonally, learned codebook methods such as FSQ~\citep{mentzer2023fsq} replace VQ-VAE codebook lookup with per-dimension scalar rounding, enabling end-to-end discrete compression without codebook collapse---an approach recently applied to geospatial embeddings by ESD~\citep{chen2026esd}.
+At the storage layer, Parquet's BYTE\_STREAM\_SPLIT encoding reorganizes floating-point byte planes before compression, while specialized numerical codecs such as Pcodec~\citep{loncaric2025pcodec} target entropy structure beyond generic LZ codecs.
 
 \paragraph{Positioning.}
 Prior vector-compression work targets web-scale text/image embeddings or model-weight quantization; learned approaches like ESD~\citep{chen2026esd} train task-specific autoencoders.
@@ -136,6 +137,14 @@ The pipeline processes Hive-partitioned Parquet files in parallel.
 For each file, it reads the embedding column, applies quantizers, replaces only that column, and writes output preserving directory structure, non-embedding columns, and schema.
 Quantization parameters (scale, zero-point, method, bit-width) are stored in Parquet footer metadata for downstream decompression.
 
+\paragraph{Storage-layer encoding sweep.}
+
+Quantization reduces numeric precision, but file format choices can further reduce footprint without changing values.
+We therefore evaluate a second, lossless storage axis on a shared \num{100000}-embedding reservoir sample.
+For Parquet-native storage, we compare Snappy, Zstd, and Zstd with BYTE\_STREAM\_SPLIT (with dictionary encoding disabled, following Arrow's Parquet writer semantics).
+For external codecs, we compare raw buffers, raw+Zstd, and Pcodec~\citep{loncaric2025pcodec} under both row-major and dimension-major layouts.
+We report effective bits per original dimension, write/read throughput, and dequantization overhead, keeping quantized values fixed across storage backends.
+
 \section{Experiments}
 \label{sec:experiments}
 
@@ -153,81 +162,81 @@ For systems, we run the full-corpus transformation over all 7 methods with 8 par
 ID estimation on a \num{10000}-sample subset yields MLE $\hat{d} = 17.0$, TwoNN $\hat{d} = 12.6$, and LPCA $\hat{d} = 17.0$ (Figure~\ref{fig:id}), confirming substantial structural redundancy relative to ambient dimension $d{=}1024$.
 
 \begin{figure}[t]
-	\centering
-	\begin{minipage}{0.9\linewidth}
-		\begin{subfigure}[t]{0.42\linewidth}
-			\includegraphics[width=\linewidth]{figures/intrinsic_dim.pdf}
-			\caption{ID estimates. MLE, TwoNN, and LPCA cluster at $\hat{d} \approx 13$--$17$, far below $d{=}1024$.}
-			\label{fig:id}
-		\end{subfigure}
-		\hfill
-		\begin{subfigure}[t]{0.54\linewidth}
-			\includegraphics[width=\linewidth]{figures/knn_recall_k.pdf}
-			\caption{kNN recall (cosine) across $k \in \{10,25,50\}$.
-				Recall declines smoothly as bit-width decreases.}
-			\label{fig:knn-k}
-		\end{subfigure}
-	\end{minipage}
-	\caption{\textbf{Intrinsic dimension and neighborhood preservation.}
-		Low intrinsic dimension motivates aggressive quantization, and recall degrades gracefully across operating points.}
-	\label{fig:id-knn}
+  \centering
+  \begin{minipage}{0.9\linewidth}
+    \begin{subfigure}[t]{0.42\linewidth}
+      \includegraphics[width=\linewidth]{figures/intrinsic_dim.pdf}
+      \caption{ID estimates. MLE, TwoNN, and LPCA cluster at $\hat{d} \approx 13$--$17$, far below $d{=}1024$.}
+      \label{fig:id}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.54\linewidth}
+      \includegraphics[width=\linewidth]{figures/knn_recall_k.pdf}
+      \caption{kNN recall (cosine) across $k \in \{10,25,50\}$.
+      Recall declines smoothly as bit-width decreases.}
+      \label{fig:knn-k}
+    \end{subfigure}
+  \end{minipage}
+  \caption{\textbf{Intrinsic dimension and neighborhood preservation.}
+  Low intrinsic dimension motivates aggressive quantization, and recall degrades gracefully across operating points.}
+  \label{fig:id-knn}
 \end{figure}
 
 \begin{table}[t]
-	\centering
-	\caption{\textbf{Quality--compression results on \num{49785116} embeddings.}
-		Reconstruction cosine is exact over all rows; kNN recall and cosine correlation are sampled from a \num{20000}-row reservoir.
-		The best compression ratio is shown in \textbf{bold}.}
-	\label{tab:quality}
-	\begin{tabular}{lrrrrr}
-		\toprule
-		Method           & Ratio ($\times$) & Recon.\ Cos $\uparrow$ & C@10 $\uparrow$ & E@10 $\uparrow$ & Cos Corr $\uparrow$ \\
-		\midrule
-		\texttt{float16} & 1.86             & 1.00                   & 1.00            & 1.00            & 1.00                \\
-		\texttt{fp8}     & 3.47             & 1.00                   & 0.95            & 0.95            & 1.00                \\
-		\texttt{int8}    & 3.45             & 1.00                   & 0.99            & 0.99            & 1.00                \\
-		\texttt{int4}    & 6.29             & 1.00                   & 0.91            & 0.91            & 1.00                \\
-		\texttt{int3}    & 7.94             & 0.98                   & 0.79            & 0.79            & 0.99                \\
-		\texttt{int2}    & 11.41            & 0.91                   & 0.54            & 0.53            & 0.95                \\
-		\texttt{binary}  & \textbf{16.53}   & 0.49                   & 0.65            & 0.66            & 0.79                \\
-		\bottomrule
-	\end{tabular}
+  \centering
+  \caption{\textbf{Quality--compression results on \num{49785116} embeddings.}
+    Reconstruction cosine is exact over all rows; kNN recall and cosine correlation are sampled from a \num{20000}-row reservoir.
+  The best compression ratio is shown in \textbf{bold}.}
+  \label{tab:quality}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Method           & Ratio ($\times$) & Recon.\ Cos $\uparrow$ & C@10 $\uparrow$ & E@10 $\uparrow$ & Cos Corr $\uparrow$ \\
+    \midrule
+    \texttt{float16} & 1.86             & 1.00                   & 1.00            & 1.00            & 1.00                \\
+    \texttt{fp8}     & 3.47             & 1.00                   & 0.95            & 0.95            & 1.00                \\
+    \texttt{int8}    & 3.45             & 1.00                   & 0.99            & 0.99            & 1.00                \\
+    \texttt{int4}    & 6.29             & 1.00                   & 0.91            & 0.91            & 1.00                \\
+    \texttt{int3}    & 7.94             & 0.98                   & 0.79            & 0.79            & 0.99                \\
+    \texttt{int2}    & 11.41            & 0.91                   & 0.54            & 0.53            & 0.95                \\
+    \texttt{binary}  & \textbf{16.53}   & 0.49                   & 0.65            & 0.66            & 0.79                \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 \begin{table}[t]
-	\centering
-	\caption{\textbf{TurboQuant~\citep{zandieh2025turboquant} vs.\ standard \texttt{int}$b$ on \num{49785116} embeddings.}
-		Compression ratios are near-identical; TurboQuant improves recall most at low bit-widths.
-		The advantage shrinks steadily as precision increases.}
-	\label{tab:turbo}
-	\begin{tabular}{lrrrrr}
-		\toprule
-		Method          & Ratio ($\times$) & Recon.\ Cos $\uparrow$ & C@10 $\uparrow$ & E@10 $\uparrow$ & Cos Corr $\uparrow$ \\
-		\midrule
-		\texttt{int2}   & 11.41            & 0.91                   & 0.54            & 0.53            & 0.95                \\
-		\texttt{turbo2} & 11.44            & 0.91                   & 0.71            & 0.69            & 0.99                \\
-		\midrule
-		\texttt{int3}   & 7.94             & 0.98                   & 0.79            & 0.79            & 0.99                \\
-		\texttt{turbo3} & 7.96             & 0.98                   & 0.88            & 0.88            & 1.00                \\
-		\midrule
-		\texttt{int4}   & 6.29             & 1.00                   & 0.91            & 0.91            & 1.00                \\
-		\texttt{turbo4} & 6.10             & 1.00                   & 0.95            & 0.95            & 1.00                \\
-		\midrule
-		\texttt{int8}   & 3.45             & 1.00                   & 0.99            & 0.99            & 1.00                \\
-		\texttt{turbo8} & 3.45             & 1.00                   & 1.00            & 1.00            & 1.00                \\
-		\bottomrule
-	\end{tabular}
+  \centering
+  \caption{\textbf{TurboQuant~\citep{zandieh2025turboquant} vs.\ standard \texttt{int}$b$ on \num{49785116} embeddings.}
+    Compression ratios are near-identical; TurboQuant improves recall most at low bit-widths.
+  The advantage shrinks steadily as precision increases.}
+  \label{tab:turbo}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Method          & Ratio ($\times$) & Recon.\ Cos $\uparrow$ & C@10 $\uparrow$ & E@10 $\uparrow$ & Cos Corr $\uparrow$ \\
+    \midrule
+    \texttt{int2}   & 11.41            & 0.91                   & 0.54            & 0.53            & 0.95                \\
+    \texttt{turbo2} & 11.44            & 0.91                   & 0.71            & 0.69            & 0.99                \\
+    \midrule
+    \texttt{int3}   & 7.94             & 0.98                   & 0.79            & 0.79            & 0.99                \\
+    \texttt{turbo3} & 7.96             & 0.98                   & 0.88            & 0.88            & 1.00                \\
+    \midrule
+    \texttt{int4}   & 6.29             & 1.00                   & 0.91            & 0.91            & 1.00                \\
+    \texttt{turbo4} & 6.10             & 1.00                   & 0.95            & 0.95            & 1.00                \\
+    \midrule
+    \texttt{int8}   & 3.45             & 1.00                   & 0.99            & 0.99            & 1.00                \\
+    \texttt{turbo8} & 3.45             & 1.00                   & 1.00            & 1.00            & 1.00                \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 \begin{figure}[t]
-	\centering
-	\includegraphics[width=\linewidth]{figures/turbo_vs_int.pdf}
-	\caption{\textbf{Standard \texttt{int}$b$ vs.\ TurboQuant recall@10 across bit-widths.}
-		Cosine recall@10 across matched bit-widths.
-		Shaded region marks the recall gap.
-		TurboQuant improves recall at every matched bit-width, with the largest gain at 2 bits and a near-zero gap by 8 bits.
-		Rotation helps most when quantization is extremely coarse, then becomes negligible once affine quantization is already near-lossless.}
-	\label{fig:turbo}
+  \centering
+  \includegraphics[width=\linewidth]{figures/turbo_vs_int.pdf}
+  \caption{\textbf{Standard \texttt{int}$b$ vs.\ TurboQuant recall@10 across bit-widths.}
+    Cosine recall@10 across matched bit-widths.
+    Shaded region marks the recall gap.
+    TurboQuant improves recall at every matched bit-width, with the largest gain at 2 bits and a near-zero gap by 8 bits.
+  Rotation helps most when quantization is extremely coarse, then becomes negligible once affine quantization is already near-lossless.}
+  \label{fig:turbo}
 \end{figure}
 
 Table~\ref{tab:quality} summarizes quality across all methods.
@@ -270,13 +279,22 @@ Practically, the best-performing post-hoc binary method in our lake-scale settin
 This suggests that future binary improvements should use \emph{global} calibration or shared transforms rather than independent per-partition thresholds.
 
 \begin{figure}[t]
-	\centering
-	\includegraphics[width=\linewidth]{figures/binary_variants.pdf}
-	\caption{\textbf{Binary variants on subsample vs.\ full corpus.}
-		\texttt{binary\_med} improves over plain sign coding on a \num{20000}-embedding subsample, but the advantage reverses on the full corpus.
-		This exposes a scale-sensitive failure mode: per-file threshold calibration does not transfer across partitions.
-		Plain \texttt{binary} remains the strongest lake-scale binary baseline.}
-	\label{fig:binary-variants}
+  \centering
+  \includegraphics[width=\linewidth]{figures/binary_variants.pdf}
+  \caption{\textbf{Binary variants on subsample vs.\ full corpus.}
+    \texttt{binary\_med} improves over plain sign coding on a \num{20000}-embedding subsample, but the advantage reverses on the full corpus.
+    This exposes a scale-sensitive failure mode: per-file threshold calibration does not transfer across partitions.
+  Plain \texttt{binary} remains the strongest lake-scale binary baseline.}
+  \label{fig:binary-variants}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/storage_backends.pdf}
+  \caption{\textbf{Best Parquet-native vs. external storage backend on a \num{100000}-embedding sample.}
+    Bars report effective bits per original dimension after lossless storage encoding.
+  BYTE\_STREAM\_SPLIT helps only for high-precision floating-point payloads; for low-bit packed codes, dimension-major external compression is stronger.}
+  \label{fig:storage-backends}
 \end{figure}
 
 \paragraph{Storage and throughput.}
@@ -285,12 +303,24 @@ Figure~\ref{fig:storage} shows the per-method storage footprint.
 \texttt{Binary} reduces the \textit{183\,GiB} corpus to \textit{11\,GiB}; \texttt{int4} to \textit{29\,GiB}.
 The full pipeline (all 7 methods, 8 workers) processes the entire corpus in \SI{45.2}{\minute} at \num{18359}\,rows/s and \SI{107}{\mebi\byte/\second} output throughput.
 
+On top of quantization, storage encoding yields another non-trivial reduction.
+Figure~\ref{fig:storage-backends} summarizes the best Parquet-native and external backends on a shared \num{100000}-embedding sample.
+For \texttt{float32}, Zstd+BYTE\_STREAM\_SPLIT lowers storage from 30.17 to 27.44 effective bits per dimension, a further 9.0\% reduction over plain Zstd.
+For \texttt{float16}, the same trick reduces storage from 15.41 to 14.28 bits/dim, a 7.4\% gain.
+The effect does not transfer to low-bit packed codes: for \texttt{fp8}, \texttt{int4}, \texttt{int2}, and \texttt{binary}, BYTE\_STREAM\_SPLIT is neutral or harmful because the packed payload already mixes entropy across bit positions.
+
+External codecs perform best when the payload is reorganized by dimension rather than by row.
+Dimension-major Zstd is the best external backend for \texttt{fp8}, \texttt{int4}, \texttt{int2}, and \texttt{binary}, reducing \texttt{binary} from 1.00 to 0.87 effective bits per original dimension on the sample.
+Pcodec~\citep{loncaric2025pcodec} is strongest for higher-precision payloads: its dimension-major layout reaches 26.73 bits/dim for \texttt{float32}, 13.68 for \texttt{float16}, and 7.10 for \texttt{int8}, beating the best Parquet-native option in each case.
+Taken together, these results suggest a simple systems rule: use Parquet-native BYTE\_STREAM\_SPLIT only for floating-point embeddings, and prefer dimension-major external codecs if the storage stack can tolerate formats outside Parquet.
+
 \paragraph{Discussion.}
 
 First, ID estimates of 13--20 (vs.\ ambient $d{=}1024$) explain why aggressive quantization does not immediately collapse neighborhood structure: most per-dimension variance is redundant for local geometry.
 Second, the quality decline from \texttt{int8} to \texttt{int2} is gradual (Figure~\ref{fig:knn-k}), enabling practitioners to select operating points based on their recall requirements versus storage budget.
 Third, \texttt{binary} quantization is not quality-preserving in a strict sense, but its $16.5\times$ compression and compatibility with Hamming-distance search make it attractive for first-pass candidate generation in multi-stage retrieval pipelines~\citep{wang2018binary}.
 Fourth, post-hoc binary refinements that look promising on small subsamples can fail at lake scale (Figure~\ref{fig:binary-variants}); robustness across partitions matters more than local reconstruction quality, so future work should prefer shared/global calibration over per-file binary transforms.
+Fifth, storage layout remains a separate optimization lever after quantization: Parquet-native tricks help only for higher-precision floats, while low-bit packed representations benefit more from dimension-major external codecs than from additional Parquet encodings.
 
 \paragraph{Retrieval benchmark.}
 
@@ -302,36 +332,36 @@ GPU search achieves \num{1140}--\num{1371}\,QPS for dequantized methods---a $22\
 Binary Hamming search runs at \num{270}\,QPS on CPU and \num{134}\,QPS on GPU; the lower GPU throughput reflects the overhead of bit-unpacking binary vectors into float tensors for \texttt{cdist}, a limitation of the brute-force approach that purpose-built Hamming kernels would eliminate.
 
 \begin{table}[t]
-	\centering
-	\caption{\textbf{Brute-force search benchmark} on 1M embeddings (1K queries, $k{=}10$).
-		QPS = queries per second.  GPU is a single RTX 3090.
-		Recall is identical across backends since quantization quality is hardware-independent.
-		\textbf{Bold}: best throughput per row.}
-	\label{tab:search}
-	\begin{tabular}{lrrrr}
-		\toprule
-		Method           & CPU QPS      & GPU QPS       & Speedup      & R@10     \\
-		\midrule
-		\texttt{float16} & 60           & \textbf{1322} & $22.2\times$ & 1.00     \\
-		\texttt{fp8}     & 49           & \textbf{1238} & $25.5\times$ & 0.95     \\
-		\texttt{int8}    & 49           & \textbf{1140} & $23.5\times$ & 0.99     \\
-		\texttt{int4}    & 48           & \textbf{1371} & $28.3\times$ & 0.90     \\
-		\texttt{int3}    & 48           & \textbf{1224} & $25.3\times$ & 0.81     \\
-		\texttt{int2}    & 48           & \textbf{1157} & $24.4\times$ & 0.61     \\
-		\texttt{binary}  & \textbf{270} & 134           & $0.5\times$  & 1.00$^*$ \\
-		\bottomrule
-		\multicolumn{5}{l}{\footnotesize $^*$Recall measured against binary GT (Hamming distance).}
-	\end{tabular}
+  \centering
+  \caption{\textbf{Brute-force search benchmark} on 1M embeddings (1K queries, $k{=}10$).
+    QPS = queries per second.  GPU is a single RTX 3090.
+    Recall is identical across backends since quantization quality is hardware-independent.
+  \textbf{Bold}: best throughput per row.}
+  \label{tab:search}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Method           & CPU QPS      & GPU QPS       & Speedup      & R@10     \\
+    \midrule
+    \texttt{float16} & 60           & \textbf{1322} & $22.2\times$ & 1.00     \\
+    \texttt{fp8}     & 49           & \textbf{1238} & $25.5\times$ & 0.95     \\
+    \texttt{int8}    & 49           & \textbf{1140} & $23.5\times$ & 0.99     \\
+    \texttt{int4}    & 48           & \textbf{1371} & $28.3\times$ & 0.90     \\
+    \texttt{int3}    & 48           & \textbf{1224} & $25.3\times$ & 0.81     \\
+    \texttt{int2}    & 48           & \textbf{1157} & $24.4\times$ & 0.61     \\
+    \texttt{binary}  & \textbf{270} & 134           & $0.5\times$  & 1.00$^*$ \\
+    \bottomrule
+    \multicolumn{5}{l}{\footnotesize $^*$Recall measured against binary GT (Hamming distance).}
+  \end{tabular}
 \end{table}
 
 \begin{figure}[!b]
-	\centering
-	\includegraphics[width=\linewidth]{figures/search_benchmark.pdf}
-	\caption{\textbf{Search throughput vs.\ recall} on 1M embeddings.
-		GPU brute-force delivers \num{1140}--\num{1371}\,QPS across dequantized methods.
-		Binary Hamming search is fastest on CPU (\num{270}\,QPS) due to native bitwise ops.
-		Recall (purple diamonds, right axis) tracks quantization fidelity independently of hardware.}
-	\label{fig:search}
+  \centering
+  \includegraphics[width=\linewidth]{figures/search_benchmark.pdf}
+  \caption{\textbf{Search throughput vs.\ recall} on 1M embeddings.
+    GPU brute-force delivers \num{1140}--\num{1371}\,QPS across dequantized methods.
+    Binary Hamming search is fastest on CPU (\num{270}\,QPS) due to native bitwise ops.
+  Recall (purple diamonds, right axis) tracks quantization fidelity independently of hardware.}
+  \label{fig:search}
 \end{figure}
 
 \paragraph{Limitations.}

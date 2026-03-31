@@ -37,6 +37,12 @@ if binary_full_path.exists():
 with open(RESULTS_DIR / "report_metrics_batched_turbo_full.json") as f:
     turbo_full = json.load(f)
 
+storage_bench_path = RESULTS_DIR / "report_storage_100k.json"
+storage_bench = None
+if storage_bench_path.exists():
+    with open(storage_bench_path) as f:
+        storage_bench = json.load(f)
+
 # ---------- unified paper palette ----------
 PRIMARY = "#2d1157"  # dark purple — main series / emphasis
 ACCENT = "#0097a7"  # teal — secondary series
@@ -564,7 +570,93 @@ print("Saved turbo_vs_int.pdf")
 
 
 # =====================================================================
-# Figure 7: Binary variants — sample vs full transfer
+# Figure 7: Storage backend comparison
+# =====================================================================
+if storage_bench is not None:
+    methods_storage = ["float32", "float16", "fp8", "int8", "int4", "int2", "binary"]
+    labels_storage = ["fp32", "fp16", "fp8", "int8", "int4", "int2", "binary"]
+
+    best_parquet = []
+    best_external = []
+    for method in methods_storage:
+        rows = storage_bench["methods"][method]
+        best_parquet.append(min(rows["parquet"], key=lambda r: r["bytes"]))
+        best_external.append(min(rows["external"], key=lambda r: r["bytes"]))
+
+    fig, ax = plt.subplots(figsize=(5.8, 2.9))
+    x = np.arange(len(methods_storage))
+    w = 0.36
+
+    bars_p = ax.bar(
+        x - w / 2,
+        [r["bits_per_dim"] for r in best_parquet],
+        w,
+        color=PRIMARY,
+        edgecolor="white",
+        linewidth=0.7,
+        alpha=0.9,
+        label="best parquet",
+    )
+    bars_e = ax.bar(
+        x + w / 2,
+        [r["bits_per_dim"] for r in best_external],
+        w,
+        color=ACCENT,
+        edgecolor="white",
+        linewidth=0.7,
+        alpha=0.9,
+        label="best external codec",
+    )
+
+    for bars in (bars_p, bars_e):
+        for bar in bars:
+            h = bar.get_height()
+            ax.text(
+                float(bar.get_x() + bar.get_width() / 2),
+                h + 0.18,
+                f"{h:.1f}",
+                ha="center",
+                fontsize=6.5,
+                color=NEUTRAL,
+                rotation=90,
+            )
+
+    ax.annotate(
+        "BSS helps\nfp32/fp16",
+        xy=(x[0] - w / 2, best_parquet[0]["bits_per_dim"]),
+        xytext=(0.7, 31.0),
+        fontsize=7,
+        color=PRIMARY,
+        arrowprops={"arrowstyle": "->", "color": PRIMARY, "lw": 0.9},
+        ha="center",
+    )
+    ax.annotate(
+        "dim-major wins\nfor low-bit codes",
+        xy=(x[5] + w / 2, best_external[5]["bits_per_dim"]),
+        xytext=(4.9, 6.2),
+        fontsize=7,
+        color=ACCENT,
+        arrowprops={"arrowstyle": "->", "color": ACCENT, "lw": 0.9},
+        ha="center",
+    )
+
+    ax.set_ylabel("Effective Bits / Original Dim")
+    ax.set_xlabel("Representation")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels_storage)
+    ax.set_ylim(0, 33.5)
+    ax.grid(True, axis="y", alpha=0.15, linewidth=0.4)
+    ax.legend(fontsize=8, framealpha=0.85, edgecolor="none", loc="upper right")
+    plt.tight_layout()
+    fig.savefig(FIG_DIR / "storage_backends.pdf")
+    plt.close()
+    print("Saved storage_backends.pdf")
+else:
+    print("Skipping storage_backends.pdf (storage benchmark report not found)")
+
+
+# =====================================================================
+# Figure 8: Binary variants — sample vs full transfer
 # =====================================================================
 if binary_baselines is not None and binary_full is not None:
     rows_sample = {r["method"]: r for r in binary_baselines["results"]}

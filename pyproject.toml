@@ -20,7 +20,9 @@ classifiers = [
 ]
 
 dependencies = [
+  "huggingface-hub>=1.8.0",
   "numpy",
+  "pcodec>=1.0.1",
   "pyarrow",
   "rich",
   "scikit-dimension",

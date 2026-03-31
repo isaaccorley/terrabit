@@ -1,0 +1,38 @@
+{
+  "name": "array-back",
+  "author": "Lloyd Brookes <opensource@75lb.com>",
+  "version": "6.2.3",
+  "description": "Guarantees an array back",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/75lb/array-back.git"
+  },
+  "license": "MIT",
+  "exports": {
+    "import": "./index.js",
+    "require": "./dist/index.cjs"
+  },
+  "type": "module",
+  "keywords": [
+    "to",
+    "convert",
+    "return",
+    "array",
+    "arrayify"
+  ],
+  "engines": {
+    "node": ">=12.17"
+  },
+  "files": [
+    "index.js",
+    "index.mjs",
+    "dist"
+  ],
+  "scripts": {
+    "test": "npm run dist && npm run test:ci",
+    "test:ci": "75lb-nature test-runner test.js",
+    "docs": "75lb-nature jsdoc2md -t README.hbs index.js > README.md",
+    "dist": "75lb-nature cjs-build index.js"
+  },
+  "devDependencies": {}
+}
