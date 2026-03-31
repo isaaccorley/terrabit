@@ -171,12 +171,13 @@ def _run_ipca(
         batch_size=batch_size,
         embedding_col=embedding_col,
     )
-    total_var = float(np.sum(ipca.explained_variance_ratio_))  # type: ignore[arg-type]
+    explained_variance_ratio = np.asarray(ipca.explained_variance_ratio_, dtype=np.float32)
+    total_var = float(explained_variance_ratio.sum())
 
     if whiten:
-        mean = ipca.mean_.astype(np.float32)  # type: ignore[union-attr]
-        components = ipca.components_.astype(np.float32)  # type: ignore[union-attr]
-        ev = ipca.explained_variance_.astype(np.float32)  # type: ignore[union-attr]
+        mean = np.asarray(ipca.mean_, dtype=np.float32)
+        components = np.asarray(ipca.components_, dtype=np.float32)
+        ev = np.asarray(ipca.explained_variance_, dtype=np.float32)
 
         def transform(x: NDArrayF32) -> NDArrayF32:
             return transform_pca_whitening(x, mean, components, ev)

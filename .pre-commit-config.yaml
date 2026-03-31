@@ -1,3 +1,5 @@
+exclude: ^app/(node_modules|dist|\.vite|output)(/|$)
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.1
@@ -39,7 +41,7 @@ repos:
         name: ty-check
         language: python
         entry: uvx ty check
-        args: [--python=.venv/]
+        args: [--python=.venv/, src/terrabit, tests]
         pass_filenames: false
 
   - repo: local

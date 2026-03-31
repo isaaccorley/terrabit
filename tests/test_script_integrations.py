@@ -44,7 +44,7 @@ def _write_quantized_file(path: Path, values: np.ndarray, method: str) -> None:
     q_values = np.asarray(quantized["quantized"])
     table = pa.table({"embedding": _fixed_size_list(q_values)})
 
-    metadata = {
+    metadata: dict[str, object] = {
         "method": method,
         "embedding_col": "embedding",
         "n_dims": int(quantized.get("n_dims", values.shape[1])),
