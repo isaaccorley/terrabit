@@ -1,3 +1,5 @@
+output/
+.playwright-cli/
 embeddings/
 upload.sh
 download.shhow

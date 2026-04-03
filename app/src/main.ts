@@ -114,6 +114,7 @@ let drawStartLatLng: { lat: number; lng: number } | null = null;
 let draftRectangle: any = null;
 let drawMoved = false;
 let drawModeArmed = false;
+let suppressNextMapClick = false;
 let scoringWorker: Worker | null = null;
 let scoringWorkerReady = false;
 let scoringRequestId = 0;
@@ -371,67 +372,64 @@ function createAppShell(): void {
   document.title = "terrabit binarized embeddings demo";
   app.innerHTML = `
     <main class="shell">
+      <header class="app-header">
+        <div class="app-brand">
+          <h1>Terrabit: Binary Earth Embedding Retrieval</h1>
+        </div>
+      </header>
+
       <section class="workspace">
         <aside class="control-rail">
           <section class="rail-card rail-card-primary">
             <div class="rail-head">
               <div>
-                <p class="panel-kicker">Demo</p>
-                <h2>terrabit binarized embeddings demo</h2>
+                <p class="panel-kicker">Search</p>
+                <h2>Region query</h2>
               </div>
-              <button id="controls-toggle" class="ghost rail-toggle" type="button" aria-expanded="true">Hide</button>
             </div>
-            <p class="hint hint-rail">Draw a region with the button or Shift-drag. Click inside for positives. Escape clears points.</p>
-            <p id="status" class="status">${state.status}</p>
+            <div class="status-block">
+              <span class="status-dot" aria-hidden="true"></span>
+              <p id="status" class="status">${state.status}</p>
+            </div>
             <div class="actions rail-actions">
               <button id="draw-aoi" class="primary" type="button">Draw region</button>
-              <button id="rerun-search" class="primary" type="button">Run search</button>
               <button id="clear-positives" class="ghost" type="button">Clear points</button>
-              <button id="clear-aoi" class="ghost" type="button">Clear region</button>
+            </div>
+            <div class="shortcut-row" aria-label="interaction shortcuts">
+              <span class="shortcut-chip">Shift drag: fast AOI</span>
+              <span class="shortcut-chip">Esc: clear region</span>
             </div>
           </section>
 
-          <section class="rail-card rail-meta">
-            <p class="panel-kicker">Footprint</p>
-            <dl class="stats">
+          <section class="rail-card list-card">
+            <div class="card-head">
               <div>
-                <dt>Region shards</dt>
-                <dd id="shard-count">0</dd>
+                <p class="panel-kicker">Positive points</p>
+                <h3 class="card-title">Exemplars</h3>
               </div>
-              <div>
-                <dt>Loaded patches</dt>
-                <dd id="candidate-count">0</dd>
-              </div>
-              <div>
-                <dt>Positive points</dt>
-                <dd id="positive-count">0</dd>
-              </div>
-            </dl>
+            </div>
+            <ol id="positive-list" class="point-list"></ol>
           </section>
         </aside>
 
         <div class="map-panel">
-          <div class="map-topbar">
-            <div>
-              <p class="panel-kicker">Region canvas</p>
-              <h2>Map</h2>
-            </div>
-            <p class="hint">Shift-drag still works. Use the left rail when you want explicit controls.</p>
-          </div>
           <div class="map-stage">
+            <div class="map-legend" aria-hidden="true">
+              <span><i class="legend-swatch legend-swatch-aoi"></i>AOI</span>
+              <span><i class="legend-swatch legend-swatch-positive"></i>Positive</span>
+              <span><i class="legend-swatch legend-swatch-rank"></i>Ranked</span>
+            </div>
             <div id="map"></div>
           </div>
         </div>
 
         <aside class="sidebar">
           <section class="card list-card">
-            <p class="panel-kicker">Positive points</p>
-            <ol id="positive-list" class="point-list"></ol>
-          </section>
-
-          <section class="card list-card">
             <div class="card-head">
-              <p class="panel-kicker">Ranking</p>
+              <div>
+                <p class="panel-kicker">Ranking</p>
+                <h3 class="card-title">Candidate review</h3>
+              </div>
               <span id="result-count">0 matches</span>
             </div>
             <div class="ranking-controls">
@@ -455,9 +453,6 @@ function createAppShell(): void {
 function getElements() {
   return {
     status: document.querySelector<HTMLElement>("#status"),
-    shardCount: document.querySelector<HTMLElement>("#shard-count"),
-    candidateCount: document.querySelector<HTMLElement>("#candidate-count"),
-    positiveCount: document.querySelector<HTMLElement>("#positive-count"),
     positiveList: document.querySelector<HTMLOListElement>("#positive-list"),
     resultCount: document.querySelector<HTMLElement>("#result-count"),
     resultList: document.querySelector<HTMLOListElement>("#result-list"),
@@ -465,11 +460,8 @@ function getElements() {
     topkValue: document.querySelector<HTMLElement>("#topk-value"),
     heatmapToggle: document.querySelector<HTMLInputElement>("#heatmap-toggle"),
     controlRail: document.querySelector<HTMLElement>(".control-rail"),
-    controlsToggle: document.querySelector<HTMLButtonElement>("#controls-toggle"),
     drawAoi: document.querySelector<HTMLButtonElement>("#draw-aoi"),
-    rerunSearch: document.querySelector<HTMLButtonElement>("#rerun-search"),
     clearPositives: document.querySelector<HTMLButtonElement>("#clear-positives"),
-    clearAoi: document.querySelector<HTMLButtonElement>("#clear-aoi"),
   };
 }
 
@@ -507,19 +499,13 @@ function setStatus(message: string): void {
 
 function updateView(): void {
   const els = getElements();
-  if (!els.status || !els.shardCount || !els.candidateCount || !els.positiveCount || !els.positiveList || !els.resultCount || !els.resultList || !els.topkSlider || !els.topkValue || !els.heatmapToggle || !els.controlRail || !els.controlsToggle || !els.drawAoi) {
+  if (!els.status || !els.positiveList || !els.resultCount || !els.resultList || !els.topkSlider || !els.topkValue || !els.heatmapToggle || !els.controlRail || !els.drawAoi) {
     return;
   }
 
-  els.controlRail.classList.toggle("is-collapsed", state.controlsCollapsed);
-  els.controlsToggle.textContent = state.controlsCollapsed ? "Show" : "Hide";
-  els.controlsToggle.setAttribute("aria-expanded", String(!state.controlsCollapsed));
-  els.drawAoi.textContent = drawModeArmed ? "Drawing..." : "Draw region";
+  els.drawAoi.textContent = drawModeArmed ? "Drawing..." : state.bbox ? "Redraw region" : "Draw region";
   els.drawAoi.classList.toggle("is-armed", drawModeArmed);
   els.status.textContent = state.status;
-  els.shardCount.textContent = new Intl.NumberFormat().format(state.shardCount);
-  els.candidateCount.textContent = new Intl.NumberFormat().format(state.candidateCount);
-  els.positiveCount.textContent = new Intl.NumberFormat().format(state.positivePoints.length);
   els.topkSlider.value = String(state.topK);
   els.topkValue.textContent = String(state.topK);
   els.heatmapToggle.checked = state.showHeatmap;
@@ -529,14 +515,24 @@ function updateView(): void {
     : `${new Intl.NumberFormat().format(visibleResults.length)} shown of ${new Intl.NumberFormat().format(state.results.length)}`;
 
   els.positiveList.innerHTML = "";
+  if (!state.positivePoints.length) {
+    els.positiveList.innerHTML = `
+      <li class="empty-state">
+        No exemplars yet. Click inside the selected region to seed the search.
+      </li>
+    `;
+  }
   for (const [index, point] of state.positivePoints.entries()) {
     const li = document.createElement("li");
     li.className = "list-item";
     li.style.setProperty("--item-index", String(index));
     li.innerHTML = `
       <button type="button" data-point-id="${point.id}" class="point-row">
-        <code>#${point.id}</code>
-        <span>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}</span>
+        <span class="point-row-meta">
+          <code>P-${point.id}</code>
+          <strong>Positive sample</strong>
+        </span>
+        <span class="point-row-value">${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}</span>
       </button>
     `;
     els.positiveList.appendChild(li);
@@ -554,6 +550,14 @@ function updateView(): void {
   });
 
   els.resultList.innerHTML = "";
+  if (!visibleResults.length) {
+    const emptyMessage = !state.candidateRows.length
+      ? "Load a region first to fetch candidate tiles."
+      : !state.positivePoints.length
+        ? "Add one or more positive points to produce a ranking."
+        : "No ranked tiles yet.";
+    els.resultList.innerHTML = `<li class="empty-state">${emptyMessage}</li>`;
+  }
   for (const [index, result] of visibleResults.entries()) {
     const li = document.createElement("li");
     li.className = "list-item";
@@ -561,8 +565,11 @@ function updateView(): void {
     const box = result.bbox;
     li.innerHTML = `
       <button data-chip="${result.chips_id}" class="result-row">
-        <strong>${result.chips_id}</strong>
-        <span>score ${result.score.toFixed(1)} | ${centroid(box).lat.toFixed(4)}, ${centroid(box).lng.toFixed(4)}</span>
+        <span class="result-row-top">
+          <strong>Match ${index + 1}</strong>
+          <code>${result.score.toFixed(1)}</code>
+        </span>
+        <span>${centroid(box).lat.toFixed(4)}, ${centroid(box).lng.toFixed(4)}</span>
       </button>
     `;
     els.resultList.appendChild(li);
@@ -764,6 +771,40 @@ function clearPositiveSelection(status = "Positive points cleared."): void {
   updateView();
 }
 
+function clearRegion(status = "Region cleared."): void {
+  state.bbox = null;
+  state.controlsCollapsed = false;
+  state.manifestShards = [];
+  state.candidateRows = [];
+  state.positivePoints = [];
+  state.positiveMatches = [];
+  state.results = [];
+  state.shardCount = 0;
+  state.candidateCount = 0;
+  state.topK = DEFAULT_TOP_K;
+  state.showHeatmap = false;
+  drawModeArmed = false;
+  clearLayers();
+  setStatus(status);
+  updateView();
+}
+
+function addPositivePoint(lat: number, lng: number, status?: string): void {
+  const point: PositivePoint = {
+    id: state.positivePoints.length + 1,
+    lat,
+    lng,
+  };
+  state.positivePoints.push(point);
+  renderPositivePoints();
+  void scoreCandidates();
+  if (status) {
+    setStatus(status);
+  } else {
+    updateView();
+  }
+}
+
 function renderPositivePoints(): void {
   if (!positiveLayer) {
     return;
@@ -822,8 +863,8 @@ function renderResultsOnMap(): void {
 
   for (const result of resultsToRender) {
     const t = (result.score - minScore) / scoreSpan;
-    const fillColor = state.showHeatmap ? interpolateHeatColor(t) : "#f25c54";
-    L.rectangle(
+    const fillColor = state.showHeatmap ? interpolatePlasmaColor(t) : "#d9896a";
+    const rectangle = L.rectangle(
       [
         [result.bbox.south, result.bbox.west],
         [result.bbox.north, result.bbox.east],
@@ -831,23 +872,43 @@ function renderResultsOnMap(): void {
       {
         color: fillColor,
         fillColor,
-        fillOpacity: state.showHeatmap ? 0.16 + t * 0.18 : 0.02,
-        opacity: state.showHeatmap ? 0.45 + t * 0.4 : 0.9,
+        fillOpacity: state.showHeatmap ? 0.28 - t * 0.12 : 0.02,
+        opacity: state.showHeatmap ? 0.88 - t * 0.28 : 0.9,
         renderer: state.showHeatmap ? heatmapRenderer : undefined,
-        weight: state.showHeatmap ? 0.25 : 1,
+        weight: state.showHeatmap ? 0.35 : 1,
       },
-    )
-      .bindPopup(`<strong>${result.chips_id}</strong><br />score ${result.score.toFixed(1)}`)
+    );
+    rectangle.on("click", (event: any) => {
+      L.DomEvent.stopPropagation(event);
+      const center = centroid(result.bbox);
+      addPositivePoint(center.lat, center.lng, "Added match as positive exemplar.");
+    });
+    rectangle
+      .bindPopup(`<strong>${result.chips_id}</strong><br />distance ${result.score.toFixed(1)}<br />click tile to add as exemplar`)
       .addTo(state.showHeatmap ? heatmapLayer : resultLayer);
   }
 }
 
-function interpolateHeatColor(t: number): string {
+function interpolatePlasmaColor(t: number): string {
   const clamped = Math.max(0, Math.min(1, t));
-  const start = { r: 130, g: 212, b: 202 };
-  const end = { r: 242, g: 92, b: 84 };
-  const mix = (a: number, b: number): number => Math.round(a + (b - a) * clamped);
-  return `rgb(${mix(start.r, end.r)} ${mix(start.g, end.g)} ${mix(start.b, end.b)})`;
+  const stops = [
+    { t: 0.0, r: 240, g: 249, b: 33 },
+    { t: 0.25, r: 248, g: 149, b: 64 },
+    { t: 0.5, r: 204, g: 71, b: 120 },
+    { t: 0.75, r: 126, g: 3, b: 167 },
+    { t: 1.0, r: 13, g: 8, b: 135 },
+  ];
+  for (let index = 0; index < stops.length - 1; index += 1) {
+    const start = stops[index];
+    const end = stops[index + 1];
+    if (clamped >= start.t && clamped <= end.t) {
+      const localT = (clamped - start.t) / (end.t - start.t);
+      const mix = (a: number, b: number): number => Math.round(a + (b - a) * localT);
+      return `rgb(${mix(start.r, end.r)} ${mix(start.g, end.g)} ${mix(start.b, end.b)})`;
+    }
+  }
+  const last = stops[stops.length - 1];
+  return `rgb(${last.r} ${last.g} ${last.b})`;
 }
 
 function renderHoverPreview(result: RankedRow | null): void {
@@ -996,6 +1057,7 @@ function attachMap(): void {
     ).addTo(aoiLayer);
     mapRef.dragging.enable();
     mapRef.getContainer().style.cursor = "";
+    suppressNextMapClick = true;
     await queryManifestAndLoadCandidates(bbox);
   };
 
@@ -1024,25 +1086,28 @@ function attachMap(): void {
   });
 
   map.on("click", (event: any) => {
+    if (suppressNextMapClick) {
+      suppressNextMapClick = false;
+      return;
+    }
     if (drawStartLatLng) {
       return;
     }
     if (!state.bbox || !containsPoint(state.bbox, event.latlng.lat, event.latlng.lng)) {
       return;
     }
-    const point: PositivePoint = {
-      id: state.positivePoints.length + 1,
-      lat: event.latlng.lat,
-      lng: event.latlng.lng,
-    };
-    state.positivePoints.push(point);
-    renderPositivePoints();
-    void scoreCandidates();
-    updateView();
+    addPositivePoint(event.latlng.lat, event.latlng.lng);
   });
 
-  const rerunSearch = getElements().rerunSearch;
   getElements().drawAoi?.addEventListener("click", () => {
+    if (state.bbox && !drawModeArmed) {
+      clearRegion("Region cleared. Drag to draw a new region.");
+      drawModeArmed = true;
+      setStatus("Draw mode armed. Drag on the map to define a region.");
+      map.getContainer().style.cursor = "crosshair";
+      updateView();
+      return;
+    }
     drawModeArmed = !drawModeArmed;
     if (drawModeArmed) {
       setStatus("Draw mode armed. Drag on the map to define a region.");
@@ -1051,11 +1116,6 @@ function attachMap(): void {
       map.getContainer().style.cursor = "";
       setStatus(state.bbox ? "Region kept. Click inside it to add positive points." : "Draw mode off.");
     }
-    updateView();
-  });
-  rerunSearch?.addEventListener("click", () => {
-    void scoreCandidates();
-    renderResultsOnMap();
     updateView();
   });
 
@@ -1077,30 +1137,6 @@ function attachMap(): void {
     clearPositiveSelection();
   });
 
-  getElements().clearAoi?.addEventListener("click", () => {
-    state.bbox = null;
-    state.controlsCollapsed = false;
-    state.manifestShards = [];
-    state.candidateRows = [];
-    state.positivePoints = [];
-    state.positiveMatches = [];
-    state.results = [];
-    state.shardCount = 0;
-    state.candidateCount = 0;
-    state.topK = DEFAULT_TOP_K;
-    state.showHeatmap = false;
-    drawModeArmed = false;
-    clearLayers();
-    setStatus("Region cleared.");
-    updateView();
-  });
-
-  getElements().controlsToggle?.addEventListener("click", () => {
-    state.controlsCollapsed = !state.controlsCollapsed;
-    requestAnimationFrame(() => map.invalidateSize());
-    updateView();
-  });
-
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") {
       return;
@@ -1116,6 +1152,10 @@ function attachMap(): void {
       map.getContainer().style.cursor = "";
       setStatus("Draw mode off.");
       updateView();
+      return;
+    }
+    if (state.bbox) {
+      clearRegion();
       return;
     }
     if (!state.positivePoints.length) {
