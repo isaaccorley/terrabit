@@ -5,6 +5,9 @@ upload.sh
 download.shhow
 results/
 *.bak*
+node_modules/
+dist/
+.vite/
 
 # Web app
 app/node_modules/
