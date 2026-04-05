@@ -44,13 +44,18 @@ def load_source_embeddings(
     *,
     seed: int = 42,
 ) -> tuple[np.ndarray, list[str], np.ndarray | None]:
-    """Load source float32 embeddings with early-stop.
+    """Load source float32 embeddings with global stratified sampling.
+
+    For n_samples < total corpus, allocates samples per file proportional to
+    the file's row count (multinomial) and reads only the required row groups
+    from each file. This guarantees coverage of every geohash partition,
+    avoiding the single-partition bias of the previous early-stop implementation.
 
     Returns:
-        embeddings: (n_samples, dim) float32 array
+        embeddings: (n_samples, dim) float32 array, shuffled
         files_used: list of parquet file paths that were read (in order)
-        chosen_idx: the subsample indices within the concatenated file data,
-                    or None if no subsampling was needed.
+        chosen_idx: the per-file offset indices for row-aligned loading of
+                    quantized counterparts, or None if no subsampling happened.
     """
     files = iter_parquet_files(EMBEDDING_DIR)
     if not files:
@@ -58,31 +63,76 @@ def load_source_embeddings(
         raise FileNotFoundError(msg)
 
     rng = np.random.default_rng(seed)
-    file_order = rng.permutation(len(files)).tolist()
-    target = n_samples * 3 if n_samples else None  # over-read for diversity
 
-    all_embs: list[np.ndarray] = []
+    # Metadata-only pass: get row counts per file.
+    file_rows = np.array(
+        [pq.ParquetFile(fp).metadata.num_rows for fp in files], dtype=np.int64
+    )
+    total_rows = int(file_rows.sum())
+
+    # Full-corpus read path (unchanged semantics).
+    if n_samples is None or n_samples >= total_rows:
+        all_embs: list[np.ndarray] = []
+        for fp in files:
+            pf = pq.ParquetFile(fp)
+            for batch in pf.iter_batches(batch_size=50_000, columns=["embedding"]):
+                embs = _read_embedding_column(batch.column("embedding")).astype(
+                    np.float32, copy=False
+                )
+                all_embs.append(embs)
+        return np.concatenate(all_embs, axis=0), list(files), None
+
+    # Proportional allocation: draw n_samples via multinomial over files.
+    probs = file_rows / total_rows
+    allocation = rng.multinomial(n_samples, probs)
+
+    # Concatenation order is fixed (file iteration order), so chosen_idx is
+    # well-defined w.r.t. the concatenated quantized-file read in
+    # load_quantized_*. For each file we pick `allocation[i]` random row
+    # indices (sorted); quantized loaders apply the same indices on the
+    # same file order.
+    per_file_idx: list[np.ndarray] = []
+    all_embs = []
+    concat_offset = 0
+    chosen_idx_parts: list[np.ndarray] = []
     files_used: list[str] = []
-    total_rows = 0
 
-    for fi in file_order:
-        fp = files[fi]
+    for fp, nr, k in zip(files, file_rows, allocation, strict=True):
+        if k == 0:
+            per_file_idx.append(np.empty(0, dtype=np.int64))
+            continue
+        k = int(k)
+        nr = int(nr)
+        # Random indices within this file.
+        if k >= nr:
+            idx = np.arange(nr, dtype=np.int64)
+        else:
+            idx = rng.choice(nr, size=k, replace=False)
+            idx.sort()
+        per_file_idx.append(idx)
+
+        # Read only the embedding column for this file, then index.
         pf = pq.ParquetFile(fp)
+        batches = []
         for batch in pf.iter_batches(batch_size=50_000, columns=["embedding"]):
-            embs = _read_embedding_column(batch.column("embedding")).astype(np.float32, copy=False)
-            all_embs.append(embs)
-            total_rows += len(embs)
+            batches.append(
+                _read_embedding_column(batch.column("embedding")).astype(
+                    np.float32, copy=False
+                )
+            )
+        file_arr = np.concatenate(batches, axis=0) if len(batches) > 1 else batches[0]
+        all_embs.append(file_arr[idx])
+        chosen_idx_parts.append(idx + concat_offset)
+        concat_offset += nr
         files_used.append(fp)
-        if target and total_rows >= target:
-            break
 
     embeddings = np.concatenate(all_embs, axis=0)
-    chosen_idx: np.ndarray | None = None
+    chosen_idx = np.concatenate(chosen_idx_parts, axis=0)
 
-    if n_samples is not None and n_samples < len(embeddings):
-        chosen_idx = rng.choice(len(embeddings), size=n_samples, replace=False)
-        chosen_idx.sort()
-        embeddings = embeddings[chosen_idx]
+    # Shuffle to break file-order correlation in downstream consumers.
+    perm = rng.permutation(len(embeddings))
+    embeddings = embeddings[perm]
+    chosen_idx = chosen_idx[perm]
 
     return embeddings, files_used, chosen_idx
 
