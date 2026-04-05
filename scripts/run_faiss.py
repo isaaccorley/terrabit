@@ -166,7 +166,7 @@ def main() -> None:
     queries_bin = quantize_binary(queries)
     source_bin = quantize_binary(source_embs)
     gt_bin_index = build_binary_index(source_bin)
-    gt_bin_knn = search_binary(gt_bin_index, queries_bin, max_k)
+    search_binary(gt_bin_index, queries_bin, max_k)
     del source_bin, gt_bin_index  # free ~n*128 bytes
     gc.collect()
 

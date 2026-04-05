@@ -377,9 +377,7 @@ if faiss_path.exists() and gpu_path.exists():
 
     _faiss_exp = faiss_res["experiments"]
     _gpu_exp = gpu_res["experiments"]
-    SEARCH_METHODS = list(
-        reversed(["binary", "int2", "int3", "int4", "fp8", "int8", "float16"])
-    )
+    SEARCH_METHODS = list(reversed(["binary", "int2", "int3", "int4", "fp8", "int8", "float16"]))
     FAISS_KEY = {
         "binary": "binary_hamming",
         "int2": "int2_flat",
@@ -469,7 +467,7 @@ if faiss_path.exists() and gpu_path.exists():
     plt.close()
     print("Saved search_benchmark.pdf")
 else:
-    print("Skipping search_benchmark.pdf (results not found)")  # noqa: E501
+    print("Skipping search_benchmark.pdf (results not found)")
 
 
 # =====================================================================

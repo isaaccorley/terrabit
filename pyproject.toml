@@ -97,6 +97,8 @@ lint.ignore = [
 lint.extend-per-file-ignores."scripts/**" = [
   "ANN001",
   "ANN201",
+  "RUF001", # ambiguous unicode × in log messages is intentional (math notation)
+  "RUF003", # ambiguous unicode × in comments is intentional
 ]
 
 lint.extend-per-file-ignores."tests/**" = [

@@ -15,6 +15,7 @@ repos:
       - id: check-json
       - id: sort-simple-yaml
       - id: pretty-format-json
+        args: ['--autofix', '--no-sort-keys', '--indent=2']
       - id: debug-statements
       - id: check-added-large-files
         args: ['--maxkb=1000']
@@ -32,7 +33,7 @@ repos:
     hooks:
       - id: mdformat
         additional_dependencies:
-          - mdformat-mkdocs==4.0.0
+          - mdformat-mkdocs==5.1.4
           - mdformat-footnote==0.1.1
 
   - repo: local

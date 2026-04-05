@@ -48,9 +48,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 TURBO_FULL_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "results"
-    / "report_metrics_batched_turbo_full.json"
+    Path(__file__).resolve().parent.parent / "results" / "report_metrics_batched_turbo_full.json"
 )
 
 RESERVOIR_SIZE = 20_000
@@ -119,9 +117,7 @@ def main() -> None:
         "knn_recall_10_cosine_sampled": float(recalls[10]),
         "knn_recall_25_cosine_sampled": float(recalls[25]),
         "knn_recall_50_cosine_sampled": float(recalls[50]),
-        "knn_recall_mean_cosine_sampled": float(
-            (recalls[10] + recalls[25] + recalls[50]) / 3
-        ),
+        "knn_recall_mean_cosine_sampled": float((recalls[10] + recalls[25] + recalls[50]) / 3),
         "_note": (
             "turbo1 evaluated on a 20k reservoir from a 200k pool (in-memory), "
             "not the full 50M corpus streaming pass used for turbo2/3/4/8. "

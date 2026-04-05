@@ -61,12 +61,8 @@ def main() -> None:
 
     log.info("Loading source embeddings (n=%d, seed=%d)...", n_samples, seed)
     t0 = time.perf_counter()
-    source_embs, source_files, chosen_idx = load_source_embeddings(
-        n_samples=n_samples, seed=seed
-    )
-    log.info(
-        "Loaded %d × %d in %.1fs", *source_embs.shape, time.perf_counter() - t0
-    )
+    source_embs, source_files, chosen_idx = load_source_embeddings(n_samples=n_samples, seed=seed)
+    log.info("Loaded %d × %d in %.1fs", *source_embs.shape, time.perf_counter() - t0)
 
     # Float32 GT (same seed-derived queries as run_faiss.py)
     rng = np.random.default_rng(seed + 1)

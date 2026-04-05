@@ -65,9 +65,7 @@ def load_source_embeddings(
     rng = np.random.default_rng(seed)
 
     # Metadata-only pass: get row counts per file.
-    file_rows = np.array(
-        [pq.ParquetFile(fp).metadata.num_rows for fp in files], dtype=np.int64
-    )
+    file_rows = np.array([pq.ParquetFile(fp).metadata.num_rows for fp in files], dtype=np.int64)
     total_rows = int(file_rows.sum())
 
     # Full-corpus read path (unchanged semantics).
@@ -113,13 +111,10 @@ def load_source_embeddings(
 
         # Read only the embedding column for this file, then index.
         pf = pq.ParquetFile(fp)
-        batches = []
-        for batch in pf.iter_batches(batch_size=50_000, columns=["embedding"]):
-            batches.append(
-                _read_embedding_column(batch.column("embedding")).astype(
-                    np.float32, copy=False
-                )
-            )
+        batches = [
+            _read_embedding_column(batch.column("embedding")).astype(np.float32, copy=False)
+            for batch in pf.iter_batches(batch_size=50_000, columns=["embedding"])
+        ]
         file_arr = np.concatenate(batches, axis=0) if len(batches) > 1 else batches[0]
         all_embs.append(file_arr[idx])
         chosen_idx_parts.append(idx + concat_offset)
