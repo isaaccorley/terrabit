@@ -377,12 +377,9 @@ if faiss_path.exists() and gpu_path.exists():
 
     _faiss_exp = faiss_res["experiments"]
     _gpu_exp = gpu_res["experiments"]
-
-    # Order: float16 → binary (matches other figures). PQ and turbo1 are
-    # appended as same-footprint (128 B/vec) baselines for the binary column.
     SEARCH_METHODS = list(
         reversed(["binary", "int2", "int3", "int4", "fp8", "int8", "float16"])
-    ) + ["turbo1", "pq"]
+    )
     FAISS_KEY = {
         "binary": "binary_hamming",
         "int2": "int2_flat",
@@ -391,15 +388,19 @@ if faiss_path.exists() and gpu_path.exists():
         "fp8": "fp8_flat",
         "int8": "int8_flat",
         "float16": "float16_flat",
-        "turbo1": "turbo1_hamming",
-        "pq": "pq_128x8",
     }
     GPU_KEY = {m: f"{m}_gpu" for m in SEARCH_METHODS}
 
     cpu_qps = [_faiss_exp[FAISS_KEY[m]]["qps"] for m in SEARCH_METHODS]
-    # PQ has no GPU baseline — plot 0 (bar disappears on log scale).
-    gpu_qps = [_gpu_exp[GPU_KEY[m]]["qps"] if GPU_KEY[m] in _gpu_exp else 0 for m in SEARCH_METHODS]
+    gpu_qps = [_gpu_exp[GPU_KEY[m]]["qps"] for m in SEARCH_METHODS]
     recall10 = [_faiss_exp[FAISS_KEY[m]]["recall"]["recall@10"] for m in SEARCH_METHODS]
+else:
+    # Fallback numbers from the manuscript table so this figure can still be
+    # regenerated when the benchmark JSON is unavailable locally.
+    SEARCH_METHODS = list(reversed(["binary", "int2", "int3", "int4", "fp8", "int8", "float16"]))
+    cpu_qps = [270, 48, 48, 48, 49, 49, 60]
+    gpu_qps = [134, 1157, 1224, 1371, 1238, 1140, 1322]
+    recall10 = [1.00, 0.61, 0.81, 0.90, 0.95, 0.99, 1.00]
 
     fig, ax1 = plt.subplots(figsize=(5.5, 3.6))
     x = np.arange(len(SEARCH_METHODS))
