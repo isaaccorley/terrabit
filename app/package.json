@@ -1,7 +1,8 @@
 {
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.32.0",
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "maplibre-gl": "^5.22.0"
   },
   "devDependencies": {
     "@types/emscripten": "^1.40.1",
