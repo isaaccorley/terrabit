@@ -378,8 +378,11 @@ if faiss_path.exists() and gpu_path.exists():
     _faiss_exp = faiss_res["experiments"]
     _gpu_exp = gpu_res["experiments"]
 
-    # Order: float16 → binary (matches other figures)
-    SEARCH_METHODS = list(reversed(["binary", "int2", "int3", "int4", "fp8", "int8", "float16"]))
+    # Order: float16 → binary (matches other figures). PQ and turbo1 are
+    # appended as same-footprint (128 B/vec) baselines for the binary column.
+    SEARCH_METHODS = list(
+        reversed(["binary", "int2", "int3", "int4", "fp8", "int8", "float16"])
+    ) + ["turbo1", "pq"]
     FAISS_KEY = {
         "binary": "binary_hamming",
         "int2": "int2_flat",
@@ -388,11 +391,14 @@ if faiss_path.exists() and gpu_path.exists():
         "fp8": "fp8_flat",
         "int8": "int8_flat",
         "float16": "float16_flat",
+        "turbo1": "turbo1_hamming",
+        "pq": "pq_128x8",
     }
     GPU_KEY = {m: f"{m}_gpu" for m in SEARCH_METHODS}
 
     cpu_qps = [_faiss_exp[FAISS_KEY[m]]["qps"] for m in SEARCH_METHODS]
-    gpu_qps = [_gpu_exp[GPU_KEY[m]]["qps"] for m in SEARCH_METHODS]
+    # PQ has no GPU baseline — plot 0 (bar disappears on log scale).
+    gpu_qps = [_gpu_exp[GPU_KEY[m]]["qps"] if GPU_KEY[m] in _gpu_exp else 0 for m in SEARCH_METHODS]
     recall10 = [_faiss_exp[FAISS_KEY[m]]["recall"]["recall@10"] for m in SEARCH_METHODS]
 
     fig, ax1 = plt.subplots(figsize=(5.5, 3.6))
@@ -429,6 +435,8 @@ if faiss_path.exists() and gpu_path.exists():
     for bars in [bars_cpu, bars_gpu]:
         for bar in bars:
             h = bar.get_height()
+            if h <= 0:
+                continue  # skip labels on zero-height (missing GPU) bars
             ax1.text(
                 bar.get_x() + bar.get_width() / 2,
                 h * 1.08,

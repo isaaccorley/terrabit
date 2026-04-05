@@ -231,10 +231,12 @@ def main() -> None:
         t0 = time.perf_counter()
         if idx_type == "binary":
             pred_knn = search_binary(cast("Any", idx), queries_bin, max_k)
-            ref_knn = gt_bin_knn
         else:
             pred_knn = search_float(cast("Any", idx), queries, max_k)
-            ref_knn = gt_knn
+        # Recall is always measured against the float32 ground-truth neighbor list —
+        # for binary this answers "how well does Hamming search recover the true f32 kNN?",
+        # not "does binary search agree with itself" (which is trivially 1.0).
+        ref_knn = gt_knn
         t_search = time.perf_counter() - t0
         qps = n_q / t_search if t_search > 0 else float("inf")
         log.info("  Search: %.1fs (%.0f QPS)", t_search, qps)
