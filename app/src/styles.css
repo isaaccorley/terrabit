@@ -829,12 +829,14 @@ button { cursor: pointer; border: 0; background: none; }
 .icon-btn {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border-radius: 6px;
   background: rgba(243, 236, 216, 0.035);
   border: 1px solid var(--line);
   color: var(--muted);
+  line-height: 0;
   transition: color 160ms, border-color 160ms, background 160ms;
 }
 .icon-btn:hover {

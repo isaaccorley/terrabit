@@ -488,6 +488,12 @@ function setStatus(message: string): void {
   updateView();
 }
 
+function compactNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
 function syncSliderFill(input: HTMLInputElement): void {
   const min = Number(input.min);
   const max = Number(input.max);
@@ -591,11 +597,11 @@ function updateView(): void {
     if (!state.candidateRows.length) e.resultCount.textContent = "";
     else if (needsExemplars && !state.positivePoints.length) e.resultCount.textContent = "";
     else if (state.viewMode === "threshold")
-      e.resultCount.textContent = `${visible.length} / ${new Intl.NumberFormat().format(activeResults.length)} within cutoff`;
+      e.resultCount.textContent = `${compactNum(visible.length)} / ${compactNum(activeResults.length)} cutoff`;
     else if (state.viewMode === "topk")
-      e.resultCount.textContent = `${visible.length} shown / ${new Intl.NumberFormat().format(activeResults.length)}`;
+      e.resultCount.textContent = `${visible.length} / ${compactNum(activeResults.length)}`;
     else
-      e.resultCount.textContent = `${new Intl.NumberFormat().format(activeResults.length)} scored`;
+      e.resultCount.textContent = `${compactNum(activeResults.length)} scored`;
   }
 
   e.resultList.innerHTML = "";
