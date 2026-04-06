@@ -558,7 +558,13 @@ button { cursor: pointer; border: 0; background: none; }
 }
 .panel-split > .sub-card {
   flex: 1 1 0;
-  min-height: 120px;
+  min-height: 100px;
+}
+.panel-split > .sub-card:first-child {
+  flex: 0.6 1 0;
+}
+.panel-split > .sub-card:last-child {
+  flex: 1.4 1 0;
 }
 .sub-card-retrieval {
   background: rgba(208, 84, 44, 0.05);
@@ -740,7 +746,7 @@ button { cursor: pointer; border: 0; background: none; }
 .result-list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 0 16px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -750,6 +756,8 @@ button { cursor: pointer; border: 0; background: none; }
   scrollbar-color: var(--line-strong) transparent;
   flex: 1 1 0;
   min-height: 60px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 80%, transparent 100%);
 }
 
 .exemplar-list::-webkit-scrollbar,
