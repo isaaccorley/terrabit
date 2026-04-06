@@ -894,28 +894,17 @@ button { cursor: pointer; border: 0; background: none; }
   gap: 8px;
 }
 .heatmap-legend[hidden] { display: none; }
-.legend-gradient-outlier {
-  /* Reversed plasma: most unique (yellow) → common (indigo) */
-  background: linear-gradient(
-    90deg,
-    rgb(240, 249, 33) 0%,
-    rgb(248, 149, 64) 25%,
-    rgb(204, 71, 120) 50%,
-    rgb(126, 3, 167) 75%,
-    rgb(13, 8, 135) 100%
-  );
-}
 .legend-gradient {
   height: 10px;
   border-radius: 999px;
-  /* Plasma: similar (yellow) → distant (indigo) */
+  /* Plasma: distant (indigo) → similar (yellow) */
   background: linear-gradient(
     90deg,
-    rgb(240, 249, 33) 0%,
-    rgb(248, 149, 64) 25%,
+    rgb(13, 8, 135) 0%,
+    rgb(126, 3, 167) 25%,
     rgb(204, 71, 120) 50%,
-    rgb(126, 3, 167) 75%,
-    rgb(13, 8, 135) 100%
+    rgb(248, 149, 64) 75%,
+    rgb(240, 249, 33) 100%
   );
   box-shadow: 0 0 0 1px rgba(14, 11, 8, 0.5) inset;
 }

@@ -205,16 +205,16 @@ function renderShell(): void {
             <div id="heatmap-legend" class="heatmap-legend" hidden>
               <div class="legend-gradient"></div>
               <div class="legend-labels">
-                <span>Similar</span>
                 <span>Distant</span>
+                <span>Similar</span>
               </div>
             </div>
 
             <div id="outlier-legend" class="heatmap-legend" hidden>
               <div class="legend-gradient legend-gradient-outlier"></div>
               <div class="legend-labels">
-                <span>Most unique</span>
                 <span>Common</span>
+                <span>Unique</span>
               </div>
             </div>
 
