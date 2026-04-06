@@ -236,6 +236,53 @@ button { cursor: pointer; border: 0; background: none; }
   text-transform: uppercase;
   color: var(--text);
 }
+.brand-attribution {
+  text-transform: none !important;
+  letter-spacing: 0.04em !important;
+  opacity: 0.55;
+  margin-top: 3px !important;
+}
+.brand-attribution a {
+  color: var(--accent);
+  text-decoration: none;
+  opacity: 0.9;
+}
+.brand-attribution a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------ Draw mode segmented control */
+
+.draw-mode-seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.draw-mode-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 8px;
+  height: 28px;
+  transition: background 0.12s, color 0.12s;
+}
+.draw-mode-btn + .draw-mode-btn {
+  border-left: 1px solid var(--border);
+}
+.draw-mode-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.draw-mode-btn.is-active {
+  background: var(--surface-2);
+  color: var(--accent);
+}
 
 /* ------------------------------------------------------ HUD: geocoder */
 

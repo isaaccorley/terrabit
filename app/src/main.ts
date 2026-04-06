@@ -139,6 +139,7 @@ function renderShell(): void {
         <div class="brand-text">
           <h1>terrabit</h1>
           <p>binary earth embedding retrieval</p>
+          <p class="brand-attribution">by <a href="https://isaac.earth" target="_blank" rel="noopener noreferrer">Isaac Corley</a></p>
         </div>
       </header>
 
@@ -171,13 +172,12 @@ function renderShell(): void {
           <span class="panel-kicker">Query</span>
         </header>
         <div class="draw-row">
+          <div class="draw-mode-seg" title="Shape mode">
+            <button id="draw-mode-rect" class="draw-mode-btn is-active" type="button" aria-label="Rectangle mode" title="Rectangle">▢</button>
+            <button id="draw-mode-poly" class="draw-mode-btn" type="button" aria-label="Polygon mode" title="Polygon — click to add vertices, double-click to close">⬡</button>
+          </div>
           <button id="draw-btn" class="btn btn-sm btn-primary" type="button">
-            <span class="btn-glyph">▢</span>
             <span id="draw-label">Draw region</span>
-          </button>
-          <button id="draw-poly-btn" class="btn btn-sm btn-ghost" type="button" title="Draw polygon region — click to add vertices, double-click to close">
-            <span class="btn-glyph">⬡</span>
-            <span>Polygon</span>
           </button>
           <button id="zoom-region-btn" class="icon-btn" type="button" hidden title="Zoom to region(s)">
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 2H2v4"/><path d="M14 6V2h-4"/><path d="M2 10v4h4"/><path d="M10 14h4v-4"/></svg>
@@ -370,7 +370,8 @@ function els() {
     statusPill: document.querySelector<HTMLElement>("#status-pill"),
     drawBtn: document.querySelector<HTMLButtonElement>("#draw-btn"),
     drawLabel: document.querySelector<HTMLElement>("#draw-label"),
-    drawPolyBtn: document.querySelector<HTMLButtonElement>("#draw-poly-btn"),
+    drawModeRect: document.querySelector<HTMLButtonElement>("#draw-mode-rect"),
+    drawModePoly: document.querySelector<HTMLButtonElement>("#draw-mode-poly"),
     zoomRegionBtn: document.querySelector<HTMLButtonElement>("#zoom-region-btn"),
     activeRegions: document.querySelector<HTMLDivElement>("#active-regions"),
     mShards: document.querySelector<HTMLElement>("#m-shards"),
@@ -697,9 +698,8 @@ function updateView(): void {
   const armed = globe?.isArmed() ?? false;
   const polyArmed = armed && globe?.getDrawMode() === "polygon";
   const rectArmed = armed && !polyArmed;
-  e.drawLabel.textContent = rectArmed ? "Drawing…" : "Draw region";
-  e.drawBtn.classList.toggle("is-armed", rectArmed);
-  e.drawPolyBtn?.classList.toggle("is-armed", polyArmed);
+  e.drawLabel.textContent = armed ? "Drawing…" : "Draw region";
+  e.drawBtn.classList.toggle("is-armed", armed);
 
   const totalShards = [...state.regionShardCounts.values()].reduce((a, b) => a + b, 0);
   if (e.mShards) e.mShards.textContent = totalShards ? String(totalShards) : "—";
@@ -2040,16 +2040,37 @@ function clearAllRegions(): void {
 
 function wire(): void {
   const e = els();
-  e.drawBtn?.addEventListener("click", () => {
-    const wasArmed = globe.isArmed() && globe.getDrawMode() === "rect";
-    globe.armDraw(!wasArmed, "rect");
-    setStatus(!wasArmed ? "Draw armed — drag on the globe to define a region." : "Draw disarmed.");
-    updateView();
+  let selectedDrawMode: "rect" | "polygon" = "rect";
+  e.drawModeRect?.addEventListener("click", () => {
+    selectedDrawMode = "rect";
+    e.drawModeRect?.classList.add("is-active");
+    e.drawModePoly?.classList.remove("is-active");
+    if (globe.isArmed()) {
+      globe.armDraw(true, "rect");
+      setStatus("Draw armed — drag on the globe to define a region.");
+      updateView();
+    }
   });
-  e.drawPolyBtn?.addEventListener("click", () => {
-    const wasArmed = globe.isArmed() && globe.getDrawMode() === "polygon";
-    globe.armDraw(!wasArmed, "polygon");
-    setStatus(!wasArmed ? "Polygon draw armed — click to add vertices, double-click to close." : "Draw disarmed.");
+  e.drawModePoly?.addEventListener("click", () => {
+    selectedDrawMode = "polygon";
+    e.drawModePoly?.classList.add("is-active");
+    e.drawModeRect?.classList.remove("is-active");
+    if (globe.isArmed()) {
+      globe.armDraw(true, "polygon");
+      setStatus("Polygon draw armed — click to add vertices, double-click to close.");
+      updateView();
+    }
+  });
+  e.drawBtn?.addEventListener("click", () => {
+    const wasArmed = globe.isArmed();
+    globe.armDraw(!wasArmed, selectedDrawMode);
+    if (!wasArmed) {
+      setStatus(selectedDrawMode === "polygon"
+        ? "Polygon draw armed — click to add vertices, double-click to close."
+        : "Draw armed — drag on the globe to define a region.");
+    } else {
+      setStatus("Draw disarmed.");
+    }
     updateView();
   });
   e.zoomRegionBtn?.addEventListener("click", () => {
