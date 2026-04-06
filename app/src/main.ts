@@ -205,6 +205,9 @@ function renderShell(): void {
               </div>
               <div class="sub-head-actions">
                 <span id="result-count" class="result-summary"></span>
+                <button class="icon-btn" type="button" aria-label="View mode help" data-help="retrieval">
+                  <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.1a2 2 0 0 1 3.6 1.2c0 1.5-1.8 1.8-1.8 3"/><circle cx="8" cy="12" r=".7" fill="currentColor" stroke="none"/></svg>
+                </button>
                 <button id="overlay-toggle" class="icon-btn is-on" type="button" title="Toggle map overlay" aria-label="Toggle map overlay">
                   <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M1 8l7-5 7 5-7 5z"/><path d="M1 11l7 5 7-5" opacity=".4"/></svg>
                 </button>
@@ -220,13 +223,13 @@ function renderShell(): void {
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="2" width="4" height="4"/><rect x="6" y="2" width="4" height="4"/><rect x="10" y="2" width="4" height="4"/><rect x="2" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="10" y="6" width="4" height="4"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/></svg>
                 <span class="view-label">Heat</span>
               </button>
-<button data-view="outlier" class="view-tab" type="button" role="tab" title="Outlier — Find the most unique and unusual patches in the region" aria-label="Most unique patches">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="2"/><circle cx="4" cy="6" r="1.2"/><circle cx="12" cy="5" r="1.2"/><circle cx="13" cy="11" r="1.2"/><circle cx="3" cy="12" r="1.2"/></svg>
-                <span class="view-label">Outlier</span>
-              </button>
               <button data-view="threshold" class="view-tab" type="button" role="tab" title="Cutoff — Show all patches within a Hamming distance threshold" aria-label="Distance cutoff">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="10" width="2" height="4"/><rect x="5" y="6" width="2" height="8"/><rect x="8" y="3" width="2" height="11"/><rect x="11" y="8" width="2" height="6"/><line x1="1" y1="7" x2="15" y2="7" stroke-dasharray="2 1.5"/></svg>
                 <span class="view-label">Cutoff</span>
+              </button>
+              <button data-view="outlier" class="view-tab" type="button" role="tab" title="Outlier — Find the most unique and unusual patches in the region" aria-label="Most unique patches">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="2"/><circle cx="4" cy="6" r="1.2"/><circle cx="12" cy="5" r="1.2"/><circle cx="13" cy="11" r="1.2"/><circle cx="3" cy="12" r="1.2"/></svg>
+                <span class="view-label">Outlier</span>
               </button>
               <button data-view="surprise" class="view-tab" type="button" role="tab" title="Surprise — Patches that look different from their geographic neighbors" aria-label="Spatial surprise">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 2v7"/><circle cx="8" cy="12.5" r="1.5"/></svg>
@@ -304,10 +307,23 @@ function renderShell(): void {
       </section>
 
       <nav class="hud-panel hud-panel-right hud-aoi-nav" id="aoi-nav">
-        <header class="panel-head">
+        <header class="panel-head panel-head-row">
           <span class="panel-kicker">Explore</span>
+          <button class="icon-btn" type="button" aria-label="About Explore" data-help="explore">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.1a2 2 0 0 1 3.6 1.2c0 1.5-1.8 1.8-1.8 3"/><circle cx="8" cy="12" r=".7" fill="currentColor" stroke="none"/></svg>
+          </button>
         </header>
         <ul id="aoi-list" class="aoi-list"></ul>
+        <div class="ip-divider"></div>
+        <section class="ip-section">
+          <header class="ip-head">
+            <span class="panel-kicker">Discoveries</span>
+            <button class="icon-btn" type="button" aria-label="About Discoveries" data-help="discoveries">
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.1a2 2 0 0 1 3.6 1.2c0 1.5-1.8 1.8-1.8 3"/><circle cx="8" cy="12" r=".7" fill="currentColor" stroke="none"/></svg>
+            </button>
+          </header>
+          <ul id="ip-list" class="ip-list"></ul>
+        </section>
       </nav>
 
     </div>
@@ -406,27 +422,45 @@ const AOI_PRESETS: AoiPreset[] = [
   { name: "Fjords Norway", tag: "fjord", bbox: { west: 6.5, south: 61.5, east: 7.5, north: 62.0 } },
   { name: "Mount Etna", tag: "volcano", bbox: { west: 14.85, south: 37.65, east: 15.15, north: 37.85 } },
   { name: "Cape Town", tag: "coastal city", bbox: { west: 18.3, south: -34.1, east: 18.7, north: -33.85 } },
-  // ── data-driven: temporal change hotspots (2024→2025) ──
-  { name: "Bristol Bay", tag: "sea ice Δ", bbox: { west: -162.6, south: 57.7, east: -162.0, north: 58.3 } },
-  { name: "Hudson Bay", tag: "ice melt Δ", bbox: { west: -81.2, south: 55.4, east: -80.6, north: 56.0 } },
-  { name: "Baffin Island", tag: "permafrost Δ", bbox: { west: -77.0, south: 67.4, east: -76.4, north: 68.0 } },
-  { name: "Comoros", tag: "tropical Δ", bbox: { west: 43.7, south: -11.2, east: 44.3, north: -10.6 } },
-  // ── data-driven: global outliers (rarest embeddings) ──
-  { name: "Adrar, Mali", tag: "deep desert", bbox: { west: -4.0, south: 19.8, east: -3.4, north: 20.4 } },
-  { name: "Qaidam Basin", tag: "salt desert", bbox: { west: 89.3, south: 37.3, east: 89.9, north: 37.9 } },
-  { name: "Libyan Sahara", tag: "erg outlier", bbox: { west: 21.2, south: 29.3, east: 21.8, north: 29.9 } },
-  // ── data-driven: diverse/mixed tiles ──
-  { name: "Oregon Coast", tag: "land-sea mix", bbox: { west: -124.5, south: 43.9, east: -123.9, north: 44.5 } },
-  { name: "Vanuatu", tag: "island mix", bbox: { west: 166.6, south: -17.4, east: 167.3, north: -16.8 } },
-  // ── data-driven: cluster centroids (biome representatives) ──
-  { name: "Komi Taiga", tag: "boreal forest", bbox: { west: 52.0, south: 63.3, east: 52.6, north: 63.9 } },
-  { name: "Outback", tag: "arid interior", bbox: { west: 135.1, south: -21.4, east: 135.7, north: -20.8 } },
-  { name: "Illinois Farm", tag: "temperate crop", bbox: { west: -90.7, south: 38.7, east: -90.1, north: 39.3 } },
-  { name: "Yunnan Canopy", tag: "subtropical", bbox: { west: 103.6, south: 23.0, east: 104.2, north: 23.6 } },
-  { name: "Patagonia", tag: "steppe", bbox: { west: -73.3, south: -43.2, east: -72.7, north: -42.6 } },
-  // ── data-driven: high bit-entropy (information-rich) ──
-  { name: "Veracruz", tag: "high entropy", bbox: { west: -97.8, south: 21.2, east: -97.2, north: 21.8 } },
-  { name: "Kamchatka", tag: "high entropy", bbox: { west: 158.2, south: 52.2, east: 158.8, north: 52.8 } },
+];
+
+type InterestingCategory = "temporal" | "outlier" | "diverse" | "cluster" | "entropy";
+type InterestingPoint = { name: string; tag: string; bbox: BBox; category: InterestingCategory };
+
+const INTERESTING_POINTS: InterestingPoint[] = [
+  // non-polar temporal change hotspots (2024→2025)
+  { name: "Moosonee", tag: "boreal Δ", category: "temporal", bbox: { west: -80.98, south: 59.82, east: -80.38, north: 60.42 } },
+  { name: "Comoros", tag: "tropical Δ", category: "temporal", bbox: { west: 43.72, south: -11.21, east: 44.32, north: -10.61 } },
+  { name: "SE Tasmania", tag: "island Δ", category: "temporal", bbox: { west: 149.03, south: -40.87, east: 149.63, north: -40.27 } },
+  // k-NN isolation outliers — patches with no close relatives in the full dataset
+  { name: "Krasnoyarsk", tag: "isolated", category: "outlier", bbox: { west: 92.71, south: 60.35, east: 93.31, north: 60.95 } },
+  { name: "W Siberia", tag: "isolated", category: "outlier", bbox: { west: 77.54, south: 56.71, east: 78.14, north: 57.31 } },
+  { name: "Dead Sea", tag: "isolated", category: "outlier", bbox: { west: 35.14, south: 30.82, east: 35.74, north: 31.42 } },
+  { name: "Thar Desert", tag: "isolated", category: "outlier", bbox: { west: 71.70, south: 26.50, east: 72.30, north: 27.10 } },
+  { name: "Iceland Lava", tag: "isolated", category: "outlier", bbox: { west: -17.52, south: 63.52, east: -16.92, north: 64.12 } },
+  // rare cluster types (smallest / rarest surface types globally)
+  { name: "Mauritanian Erg", tag: "rare surface", category: "cluster", bbox: { west: -7.41, south: 19.79, east: -6.81, north: 20.39 } },
+  { name: "St. Elias Mtn", tag: "rare surface", category: "cluster", bbox: { west: -139.26, south: 59.13, east: -138.66, north: 59.73 } },
+  { name: "Karakum Desert", tag: "rare surface", category: "cluster", bbox: { west: 61.00, south: 38.41, east: 61.60, north: 39.01 } },
+  { name: "Amazon", tag: "rare surface", category: "cluster", bbox: { west: -64.66, south: -5.83, east: -64.06, north: -5.23 } },
+  { name: "Lake Turkana", tag: "rare surface", category: "cluster", bbox: { west: 34.82, south: 2.31, east: 35.42, north: 2.91 } },
+  { name: "Richat Structure", tag: "rare surface", category: "cluster", bbox: { west: -11.70, south: 20.80, east: -11.10, north: 21.40 } },
+  { name: "Salar de Uyuni", tag: "rare surface", category: "cluster", bbox: { west: -68.00, south: -20.60, east: -67.40, north: -20.00 } },
+  { name: "Namib Sand Sea", tag: "rare surface", category: "cluster", bbox: { west: 14.70, south: -25.00, east: 15.30, north: -24.40 } },
+  { name: "Sundarbans", tag: "rare surface", category: "cluster", bbox: { west: 88.90, south: 21.60, east: 89.50, north: 22.20 } },
+  { name: "Tibetan Plateau", tag: "rare surface", category: "cluster", bbox: { west: 85.70, south: 30.20, east: 86.30, north: 30.80 } },
+  { name: "Chott el Djerid", tag: "rare surface", category: "cluster", bbox: { west: 8.20, south: 33.50, east: 8.80, north: 34.10 } },
+  { name: "Danakil Depression", tag: "rare surface", category: "cluster", bbox: { west: 40.50, south: 13.80, east: 41.10, north: 14.40 } },
+  // high bit-entropy (information-rich)
+  { name: "Bering Sea", tag: "high entropy", category: "entropy", bbox: { west: -170.79, south: 63.20, east: -170.19, north: 63.80 } },
+  { name: "Yamal", tag: "high entropy", category: "entropy", bbox: { west: 63.22, south: 76.19, east: 63.82, north: 76.79 } },
+  { name: "Adelaide Hills", tag: "high entropy", category: "entropy", bbox: { west: 138.20, south: -35.79, east: 138.80, north: -35.19 } },
+  { name: "Okavango Delta", tag: "high entropy", category: "entropy", bbox: { west: 22.60, south: -19.80, east: 23.20, north: -19.20 } },
+  { name: "Inner Niger Delta", tag: "high entropy", category: "entropy", bbox: { west: -4.50, south: 14.70, east: -3.90, north: 15.30 } },
+  { name: "Pantanal", tag: "high entropy", category: "entropy", bbox: { west: -57.80, south: -17.80, east: -57.20, north: -17.20 } },
+  { name: "Mekong Delta", tag: "high entropy", category: "entropy", bbox: { west: 105.20, south: 10.00, east: 105.80, north: 10.60 } },
+  { name: "Irrawaddy Delta", tag: "high entropy", category: "entropy", bbox: { west: 95.00, south: 15.50, east: 95.60, north: 16.10 } },
+  { name: "Lena Delta", tag: "high entropy", category: "entropy", bbox: { west: 126.20, south: 72.40, east: 126.80, north: 73.00 } },
 ];
 
 function renderAoiPresets(): void {
@@ -446,6 +480,27 @@ function renderAoiPresets(): void {
       const aoi = AOI_PRESETS[Number(btn.dataset.aoi)];
       globe.fitBounds(aoi.bbox, { padding: 60, maxZoom: 11 });
       setStatus(`${aoi.name} — shift-drag to draw a region.`);
+    });
+  });
+}
+
+function renderInterestingPoints(): void {
+  const list = document.querySelector<HTMLUListElement>("#ip-list");
+  if (!list) return;
+  list.innerHTML = INTERESTING_POINTS.map(
+    (pt, i) => `
+    <li class="ip-item" data-category="${pt.category}" style="--i:${i}">
+      <button type="button" data-ip="${i}">
+        <span class="ip-name">${pt.name}</span>
+        <span class="ip-tag">${pt.tag}</span>
+      </button>
+    </li>`,
+  ).join("");
+  list.querySelectorAll<HTMLButtonElement>("button[data-ip]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pt = INTERESTING_POINTS[Number(btn.dataset.ip)];
+      globe.fitBounds(pt.bbox, { padding: 60, maxZoom: 11 });
+      setStatus(`${pt.name} — shift-drag to draw a region.`);
     });
   });
 }
@@ -1687,6 +1742,30 @@ function wire(): void {
     applyOverlay();
     updateView();
   });
+  // Body-level help popover — escapes all overflow/transform containing blocks
+  const helpContent: Record<string, string> = {
+    retrieval: `<p class="overlay-help-title">Overlay modes</p><ul class="overlay-help-list"><li><strong>Top-K</strong> — Ranked list of the N most similar patches to your query.</li><li><strong>Heat</strong> — Similarity heatmap across all patches; bright = close match.</li><li><strong>Cutoff</strong> — All patches within a max Hamming distance you set.</li><li><strong>Outlier</strong> — Patches most unlike the rest of the visible region.</li><li><strong>Surprise</strong> — Patches that differ sharply from their spatial neighbors.</li><li><strong>Edge</strong> — Boundaries where similarity scores change abruptly.</li></ul>`,
+    explore: `<p class="overlay-help-title">Explore</p><p class="panel-info-body">Curated regions based on prior knowledge — interesting places around the world to search within.</p>`,
+    discoveries: `<p class="overlay-help-title">Discoveries</p><p class="panel-info-body">Interesting locations surfaced automatically by analyzing the embeddings — outliers, surprising patches, and boundary regions found without manual curation.</p>`,
+  };
+  const helpPopover = document.createElement("div");
+  helpPopover.className = "help-popover";
+  helpPopover.setAttribute("role", "tooltip");
+  document.body.appendChild(helpPopover);
+  document.querySelectorAll<HTMLButtonElement>("button[data-help]").forEach((btn) => {
+    btn.addEventListener("mouseenter", () => {
+      const key = btn.dataset.help ?? "";
+      if (!helpContent[key]) return;
+      helpPopover.innerHTML = helpContent[key];
+      const r = btn.getBoundingClientRect();
+      helpPopover.style.top = `${r.bottom + 8}px`;
+      helpPopover.style.right = `${window.innerWidth - r.right}px`;
+      helpPopover.style.display = "block";
+    });
+    btn.addEventListener("mouseleave", () => {
+      helpPopover.style.display = "none";
+    });
+  });
   e.topkSlider?.addEventListener("input", (ev) => {
     state.topK = Number((ev.currentTarget as HTMLInputElement).value);
     globe.setResults(state.results, state.topK, state.viewMode);
@@ -1834,6 +1913,7 @@ function bootstrap(): void {
   });
   wire();
   renderAoiPresets();
+  renderInterestingPoints();
   updateView();
   wireTutorial();
 }
