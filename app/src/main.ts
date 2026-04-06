@@ -2297,6 +2297,7 @@ type TutorialStep = {
   placement?: TutorialPlacement;
   padding?: number;        // extra glow padding around spotlight (px)
   onEnter?: () => void;   // side-effect fired when step becomes active
+  onLeave?: () => Promise<void>; // awaited before advancing to next step
 };
 
 /* ---- Tutorial simulation helpers ---- */
@@ -2424,6 +2425,10 @@ const TUTORIAL_STEPS: TutorialStep[] = [
       globe.map.flyTo({ center: [-98.35, 38.7], zoom: 9, duration: 1600 });
       setTimeout(() => { void tutSimulateDraw(DEMO_BBOX); }, 1800);
     },
+    onLeave: async () => {
+      tutCancelSim();
+      if (!state.bboxes.length) await addRegion(DEMO_BBOX);
+    },
   },
   {
     target: "#positive-list",
@@ -2444,6 +2449,16 @@ const TUTORIAL_STEPS: TutorialStep[] = [
         await tutSimulateExternalPositive();
       });
     },
+    onLeave: async () => {
+      tutCancelSim();
+      if (state.positivePoints.length === 0) {
+        const ready = await tutWaitForData(5000);
+        if (ready) {
+          await tutSimulatePositive(DEMO_POS_LAT, DEMO_POS_LNG);
+          await tutSimulateExternalPositive();
+        }
+      }
+    },
   },
   {
     target: "#negative-section",
@@ -2454,6 +2469,12 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     onEnter: () => {
       if (state.negativePoints.length > 0) return;
       void tutSimulateNegative(DEMO_NEG_LAT, DEMO_NEG_LNG);
+    },
+    onLeave: async () => {
+      tutCancelSim();
+      if (state.negativePoints.length === 0) {
+        await tutSimulateNegative(DEMO_NEG_LAT, DEMO_NEG_LNG);
+      }
     },
   },
   {
@@ -2644,8 +2665,18 @@ function tutorialRender(): void {
   card.querySelector("#tut-done")?.addEventListener("click", tutorialStop);
 }
 
-function tutorialGo(step: number): void {
-  tutorialState.step = Math.max(0, Math.min(step, TUTORIAL_STEPS.length - 1));
+async function tutorialGo(targetStep: number): Promise<void> {
+  const currentStep = tutorialState.step;
+  if (targetStep > currentStep) {
+    const current = TUTORIAL_STEPS[currentStep];
+    if (current?.onLeave) {
+      const nextBtn = document.querySelector<HTMLButtonElement>("#tut-next");
+      if (nextBtn) nextBtn.disabled = true;
+      await current.onLeave();
+      if (nextBtn) nextBtn.disabled = false;
+    }
+  }
+  tutorialState.step = Math.max(0, Math.min(targetStep, TUTORIAL_STEPS.length - 1));
   // Fade out card, then re-render
   const card = document.querySelector<HTMLElement>("#tut-card");
   const overlay = document.querySelector<HTMLElement>("#tut-overlay");
