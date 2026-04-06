@@ -2349,13 +2349,18 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     target: "#positive-list",
     title: "Step 2 — place a positive exemplar",
-    body: "Patches are loaded. We're clicking a farm field as the first exemplar — terrabit immediately scores every patch by binary Hamming distance and surfaces the closest matches worldwide.",
+    body: "Patches are loaded. We click a farm field <em>inside</em> the region as the first exemplar, then a second one in Iowa — <strong>exemplars don't need to be inside the region</strong>. terrabit scores every patch by binary Hamming distance and surfaces the closest matches worldwide.",
     placement: "right",
     padding: 8,
     onEnter: () => {
-      void tutWaitForData().then((ready) => {
-        if (!ready || !tutorialState.active) return;
-        void tutSimulatePositive(DEMO_POS_LAT, DEMO_POS_LNG);
+      const stepAtEnter = tutorialState.step;
+      void tutWaitForData().then(async (ready) => {
+        if (!ready || !tutorialState.active || tutorialState.step !== stepAtEnter) return;
+        await tutSimulatePositive(DEMO_POS_LAT, DEMO_POS_LNG);
+        await tutSimDelay(2200);
+        if (!tutorialState.active || tutorialState.step !== stepAtEnter) return;
+        // Second exemplar outside the region — Iowa farmland
+        await tutSimulatePositive(41.82, -93.62);
       });
     },
   },
