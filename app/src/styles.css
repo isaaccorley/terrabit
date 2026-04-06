@@ -482,8 +482,11 @@ button { cursor: pointer; border: 0; background: none; }
 
 .hud-aoi-nav {
   width: 180px;
-  padding: 12px 10px 10px;
+  padding: 12px 10px 0;
   gap: 8px;
+  /* fade-out at bottom hints at scrollable content */
+  -webkit-mask-image: linear-gradient(to bottom, #000 85%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 85%, transparent 100%);
 }
 
 .aoi-list {
