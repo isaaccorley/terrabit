@@ -456,7 +456,6 @@ export class GlobeMap {
           return;
         }
       }
-      if (!this.cb.getBBox()) return;
       const { lat, lng } = e.lngLat;
       this.cb.onAoiClick(lat, lng);
     });

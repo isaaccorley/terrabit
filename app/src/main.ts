@@ -1144,7 +1144,7 @@ async function fetchExternalEmbedding(lat: number, lng: number): Promise<Candida
 }
 
 function addPositive(lat: number, lng: number): void {
-  const isInsideAoi = state.bbox && containsPoint(state.bbox, lat, lng);
+  const isInsideAoi = state.bbox && containsPoint(state.bbox, lat, lng) && state.candidateRows.length;
 
   if (isInsideAoi) {
     // Deduplicate: skip if this click resolves to an already-selected patch
