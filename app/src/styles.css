@@ -230,8 +230,8 @@ button { cursor: pointer; border: 0; background: none; }
 .brand-text p {
   margin: 2px 0 0;
   font-family: "JetBrains Mono", monospace;
-  font-size: 10px;
-  letter-spacing: 0.22em;
+  font-size: 9px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text);
 }
