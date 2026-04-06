@@ -2371,19 +2371,26 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     target: ".view-toggle",
-    title: "Step 4 — Top-K vs Heatmap",
-    body: "<strong>Top-K</strong> shows the ranked closest matches. Watch as we switch to <strong>Heatmap</strong> — the same scores painted as a continuous similarity surface across every patch in the region.",
+    title: "Step 4 — explore view modes",
+    body: "Watch as terrabit cycles through every view: <strong>Top-K</strong> ranks closest matches · <strong>Heat</strong> paints a continuous similarity surface · <strong>Cutoff</strong> filters by distance · <strong>Outlier</strong> finds unique patches · <strong>Surprise</strong> spots spatial anomalies · <strong>Edge</strong> traces similarity boundaries.",
     placement: "right",
     padding: 10,
     onEnter: () => {
-      setTimeout(() => {
-        if (!tutorialState.active) return;
-        tutSetViewMode("heatmap");
-        setTimeout(() => {
-          if (!tutorialState.active) return;
-          tutSetViewMode("topk");
-        }, 3000);
-      }, 800);
+      const stepAtEnter = tutorialState.step;
+      const modes: ViewMode[] = ["topk", "heatmap", "threshold", "outlier", "surprise", "gradient"];
+      const cycle = async (): Promise<void> => {
+        for (const mode of modes) {
+          if (!tutorialState.active || tutorialState.step !== stepAtEnter) return;
+          tutSetViewMode(mode);
+          await tutSimDelay(2200);
+        }
+        if (!tutorialState.active || tutorialState.step !== stepAtEnter) return;
+        void cycle();
+      };
+      void tutSimDelay(600).then(() => {
+        if (!tutorialState.active || tutorialState.step !== stepAtEnter) return;
+        void cycle();
+      });
     },
   },
   {
