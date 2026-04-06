@@ -1,11 +1,15 @@
-"""Find interesting exemplar points/regions in the binary embedding dataset.
+"""Find interesting/weird exemplar points in the binary embedding dataset.
 
 Analyses:
-1. Temporal change: tiles where 2024↔2025 embeddings diverge most
-2. Global outliers: embeddings most different from the global centroid
-3. Intra-tile diversity: tiles with highest internal embedding variance
-4. Cluster centroids: k-means on binary embeddings → representative types
-5. High bit-entropy regions
+1. Non-polar temporal change: tiles where 2024↔2025 embeddings diverge most,
+   excluding high-latitude sea-ice churn (|lat| > 62°).
+2. k-NN isolation outliers: patches with the highest mean distance to their
+   K nearest neighbours globally — truly has-no-close-relatives weird.
+3. Intra-tile diversity (inland): tiles with high internal embedding variance,
+   excluding obvious coastal land/ocean boundary tiles.
+4. Rare cluster types: k-means with many clusters → smallest clusters are the
+   rarest surface types; return most isolated point from each.
+5. High bit-entropy regions.
 """
 
 import glob
@@ -20,7 +24,6 @@ console = Console()
 DATA_DIR = Path("embeddings/clay-v1_5-binary-sentinel-2")
 RNG = np.random.default_rng(42)
 
-# Precompute popcount LUT
 _POPCOUNT_LUT = np.array([i.bit_count() for i in range(256)], dtype=np.int32)
 
 
@@ -44,12 +47,10 @@ def load_tile_fast(tile_x: int, tile_y: int, year: int | None = None) -> dict:
         n = len(t)
         if n == 0:
             continue
-        # Extract embeddings as flat array then reshape
         emb_col = t.column("embedding")
         flat = emb_col.combine_chunks().flatten().to_numpy(zero_copy_only=False)
         embs_list.append(flat.reshape(n, 128))
 
-        # Extract bbox centers
         bbox_col = t.column("bbox").combine_chunks()
         xmin = bbox_col.field("xmin").to_numpy(zero_copy_only=False)
         xmax = bbox_col.field("xmax").to_numpy(zero_copy_only=False)
@@ -58,7 +59,6 @@ def load_tile_fast(tile_x: int, tile_y: int, year: int | None = None) -> dict:
         lons_list.append((xmin + xmax) / 2)
         lats_list.append((ymin + ymax) / 2)
 
-        # Extract year from path
         for part in f.split("/"):
             if part.startswith("year="):
                 years_list.append(np.full(n, int(part.split("=")[1])))
@@ -80,7 +80,6 @@ def load_tile_fast(tile_x: int, tile_y: int, year: int | None = None) -> dict:
 
 
 def hamming_to_ref(embs: np.ndarray, ref: np.ndarray) -> np.ndarray:
-    """Hamming distance of each row in embs to ref (1D)."""
     return _POPCOUNT_LUT[np.bitwise_xor(embs, ref[np.newaxis, :])].sum(axis=1)
 
 
@@ -107,7 +106,8 @@ def get_all_tile_coords() -> list[tuple[int, int]]:
 
 
 def find_temporal_change(tile_coords: list, n_sample: int = 3000) -> list:
-    console.print("\n[bold cyan]═══ Analysis 1: Temporal Change Detection ═══[/bold cyan]")
+    """Tiles where embedding centroid changed most 2024→2025, excluding high-latitude ice churn."""
+    console.print("\n[bold cyan]═══ Analysis 1: Non-polar Temporal Change ═══[/bold cyan]")
     sampled = RNG.choice(len(tile_coords), size=min(n_sample, len(tile_coords)), replace=False)
     results = []
     for idx, i in enumerate(sampled):
@@ -115,6 +115,10 @@ def find_temporal_change(tile_coords: list, n_sample: int = 3000) -> list:
         d24 = load_tile_fast(tx, ty, 2024)
         d25 = load_tile_fast(tx, ty, 2025)
         if len(d24["embeddings"]) < 5 or len(d25["embeddings"]) < 5:
+            continue
+        mid_lat = float(d24["lats"][len(d24["lats"]) // 2])
+        # Skip polar/subpolar — seasonal ice dominates and is uninteresting
+        if abs(mid_lat) > 62.0:
             continue
         c24 = binary_centroid(d24["embeddings"])
         c25 = binary_centroid(d25["embeddings"])
@@ -137,65 +141,104 @@ def find_temporal_change(tile_coords: list, n_sample: int = 3000) -> list:
     return results[:30]
 
 
-def find_global_outliers(tile_coords: list, n_sample: int = 1500) -> list:
-    console.print("\n[bold cyan]═══ Analysis 2: Global Outlier Detection ═══[/bold cyan]")
-    sampled = RNG.choice(len(tile_coords), size=min(n_sample, len(tile_coords)), replace=False)
+def find_knn_outliers(
+    tile_coords: list,
+    patches_per_tile: int = 3,
+    k: int = 15,
+    query_batch: int = 1000,
+    ref_batch: int = 5000,
+) -> list:
+    """Patches most isolated in global embedding space — truly has-no-close-relatives weird.
 
-    # Phase 1: global centroid from subsampled embeddings
-    console.print("  Computing global centroid...")
-    centroid_embs = []
-    for idx, i in enumerate(sampled):
-        tx, ty = tile_coords[i]
-        data = load_tile_fast(tx, ty)
-        if len(data["embeddings"]) > 0:
-            sel = RNG.choice(
-                len(data["embeddings"]), size=min(15, len(data["embeddings"])), replace=False
-            )
-            centroid_embs.append(data["embeddings"][sel])
-        if (idx + 1) % 500 == 0:
-            console.print(f"    {idx + 1}/{len(sampled)}...")
-    centroid_embs = np.concatenate(centroid_embs)
-    centroid = binary_centroid(centroid_embs)
-    console.print(f"  Centroid from {len(centroid_embs)} samples")
+    Exhaustive over the full dataset: loads patches from EVERY tile (no tile sampling),
+    then computes exact k-NN isolation scores using a streaming top-K approach that
+    avoids materialising the full NxN distance matrix.
 
-    # Phase 2: find furthest points
-    console.print("  Scanning for outliers...")
-    candidates = []
-    for idx, i in enumerate(sampled):
-        tx, ty = tile_coords[i]
+    Memory at any point: query_batch x ref_batch x 128 bytes for XOR (~640 MB default).
+    """
+    console.print(
+        "\n[bold cyan]═══ Analysis 2: k-NN Isolation Outliers (full dataset) ═══[/bold cyan]"
+    )
+
+    all_embs, all_lats, all_lons, all_years = [], [], [], []
+    console.print(
+        f"  Loading {patches_per_tile} patches from every tile ({len(tile_coords)} tiles)..."
+    )
+    for idx, (tx, ty) in enumerate(tile_coords):
         data = load_tile_fast(tx, ty)
         if len(data["embeddings"]) == 0:
             continue
-        dists = hamming_to_ref(data["embeddings"], centroid)
-        top3 = np.argsort(dists)[-3:]
-        candidates.extend(
-            {
-                "tile_x": tx,
-                "tile_y": ty,
-                "distance": int(dists[j]),
-                "lat": float(data["lats"][j]),
-                "lon": float(data["lons"][j]),
-                "year": int(data["years"][j]),
-            }
-            for j in top3
+        sel = RNG.choice(
+            len(data["embeddings"]),
+            size=min(patches_per_tile, len(data["embeddings"])),
+            replace=False,
         )
-        if (idx + 1) % 500 == 0:
-            console.print(f"    {idx + 1}/{len(sampled)}...")
+        all_embs.append(data["embeddings"][sel])
+        all_lats.append(data["lats"][sel])
+        all_lons.append(data["lons"][sel])
+        all_years.append(data["years"][sel])
+        if (idx + 1) % 2000 == 0:
+            console.print(f"    {idx + 1}/{len(tile_coords)} tiles loaded...")
 
-    candidates.sort(key=lambda x: x["distance"], reverse=True)
-    deduped = []
-    for c in candidates:
+    embs = np.concatenate(all_embs)  # N×128 uint8
+    lats = np.concatenate(all_lats)
+    lons = np.concatenate(all_lons)
+    years = np.concatenate(all_years)
+    n = len(embs)
+    console.print(f"  {n} embeddings loaded. Computing streaming k-NN isolation scores...")
+
+    # Streaming top-K: for each query batch, accumulate the K+1 smallest distances
+    # seen so far across all reference batches. Never stores the full N×N matrix.
+    knn_scores = np.zeros(n, dtype=np.float32)
+
+    for qi in range(0, n, query_batch):
+        q = embs[qi : qi + query_batch]
+        qb = len(q)
+        # running_topk[i] holds the (k+1) smallest distances seen for query i so far.
+        # Initialised to a value > max possible Hamming (1024 bits).
+        running_topk = np.full((qb, k + 1), 1025, dtype=np.int32)
+
+        for ri in range(0, n, ref_batch):
+            r = embs[ri : ri + ref_batch]
+            xor = np.bitwise_xor(q[:, np.newaxis, :], r[np.newaxis, :, :])  # qb×rb×128
+            d = _POPCOUNT_LUT[xor].sum(axis=2)  # qb×rb  int32
+            combined = np.concatenate([running_topk, d], axis=1)
+            running_topk = np.sort(combined, axis=1)[:, : k + 1]
+
+        # running_topk[:, 0] == 0 (self-distance); skip it, average the rest
+        knn_scores[qi : qi + qb] = running_topk[:, 1 : k + 1].mean(axis=1)
+
+        if (qi // query_batch) % 20 == 0:
+            console.print(f"    scored {qi}/{n}...")
+
+    order = np.argsort(knn_scores)[::-1]
+    results = []
+    for idx in order:
+        r = {
+            "lat": float(lats[idx]),
+            "lon": float(lons[idx]),
+            "year": int(years[idx]),
+            "isolation": float(knn_scores[idx]),
+            "tile_x": 0,
+            "tile_y": 0,
+        }
         if not any(
-            abs(c["lat"] - d["lat"]) < 0.5 and abs(c["lon"] - d["lon"]) < 0.5 for d in deduped
+            abs(r["lat"] - d["lat"]) < 0.5 and abs(r["lon"] - d["lon"]) < 0.5 for d in results
         ):
-            deduped.append(c)
-        if len(deduped) >= 30:
+            results.append(r)
+        if len(results) >= 30:
             break
-    return deduped
+    return results
 
 
 def find_diverse_tiles(tile_coords: list, n_sample: int = 1500) -> list:
-    console.print("\n[bold cyan]═══ Analysis 3: Intra-tile Diversity ═══[/bold cyan]")
+    """Tiles with high internal embedding variance, filtering out coastal land/ocean boundary noise.
+
+    Coastal tiles score high simply because half the patches are ocean and half are land —
+    not interesting. We filter by checking whether the intra-tile distance distribution is
+    strongly bimodal (two tight groups far apart = coast boundary, not genuine diversity).
+    """
+    console.print("\n[bold cyan]═══ Analysis 3: Intra-tile Diversity (inland) ═══[/bold cyan]")
     sampled = RNG.choice(len(tile_coords), size=min(n_sample, len(tile_coords)), replace=False)
     results = []
     for idx, i in enumerate(sampled):
@@ -205,6 +248,14 @@ def find_diverse_tiles(tile_coords: list, n_sample: int = 1500) -> list:
             continue
         c = binary_centroid(data["embeddings"])
         dists = hamming_to_ref(data["embeddings"], c)
+
+        # Bimodality filter: if >35% of patches are within 20 bits of centroid AND
+        # >35% are >80 bits from centroid, it's a land/ocean split — skip it.
+        frac_near = (dists < 20).mean()
+        frac_far = (dists > 80).mean()
+        if frac_near > 0.35 and frac_far > 0.35:
+            continue
+
         results.append(
             {
                 "tile_x": tx,
@@ -222,8 +273,14 @@ def find_diverse_tiles(tile_coords: list, n_sample: int = 1500) -> list:
     return results[:30]
 
 
-def find_cluster_centroids(tile_coords: list, n_clusters: int = 20) -> list:
-    console.print("\n[bold cyan]═══ Analysis 4: Cluster Centroids ═══[/bold cyan]")
+def find_rare_clusters(tile_coords: list, n_clusters: int = 50) -> list:
+    """Rarest surface types: run k-means with many clusters, return smallest clusters.
+
+    Large clusters = common biomes. Small clusters = rare/unusual surfaces.
+    Within each rare cluster we pick the most isolated point (furthest from
+    cluster centroid) — the extreme, not the typical.
+    """
+    console.print("\n[bold cyan]═══ Analysis 4: Rare Cluster Types ═══[/bold cyan]")
     from sklearn.cluster import MiniBatchKMeans
 
     sampled = RNG.choice(len(tile_coords), size=min(2000, len(tile_coords)), replace=False)
@@ -248,18 +305,21 @@ def find_cluster_centroids(tile_coords: list, n_clusters: int = 20) -> list:
     lats = np.concatenate(all_lats)
     lons = np.concatenate(all_lons)
     years = np.concatenate(all_years)
-    console.print(f"  Clustering {len(embs)} embeddings...")
+    console.print(f"  Clustering {len(embs)} embeddings into {n_clusters} clusters...")
 
     X = np.unpackbits(embs, axis=1).astype(np.float32)
-    km = MiniBatchKMeans(n_clusters=n_clusters, random_state=42, batch_size=2048, n_init=3)
+    km = MiniBatchKMeans(n_clusters=n_clusters, random_state=42, batch_size=2048, n_init=5)
     labels = km.fit_predict(X)
 
     results = []
     for c in range(n_clusters):
         mask = labels == c
+        if mask.sum() == 0:
+            continue
+        # Pick the point most distant from centroid — most extreme example of this rare type
         dists = np.linalg.norm(X[mask] - km.cluster_centers_[c], axis=1)
-        nearest = np.argmin(dists)
-        orig_idx = np.where(mask)[0][nearest]
+        extreme = np.argmax(dists)
+        orig_idx = np.where(mask)[0][extreme]
         results.append(
             {
                 "cluster": c,
@@ -268,10 +328,11 @@ def find_cluster_centroids(tile_coords: list, n_clusters: int = 20) -> list:
                 "lon": float(lons[orig_idx]),
                 "year": int(years[orig_idx]),
                 "tile_x": 0,
-                "tile_y": 0,  # placeholder
+                "tile_y": 0,
             }
         )
-    results.sort(key=lambda x: x["size"], reverse=True)
+    # Smallest clusters first — rarest surface types
+    results.sort(key=lambda x: x["size"])
     return results
 
 
@@ -335,62 +396,63 @@ def main() -> None:
     console.print(f"Found {len(tile_coords)} unique tiles\n")
 
     temporal = find_temporal_change(tile_coords)
-    print_results("Temporal Change (2024→2025)", temporal, ["change_score", "n_2024", "n_2025"])
+    print_results(
+        "Non-polar Temporal Change (2024→2025)", temporal, ["change_score", "n_2024", "n_2025"]
+    )
 
-    outliers = find_global_outliers(tile_coords)
-    print_results("Global Outliers", outliers, ["distance", "year"])
+    outliers = find_knn_outliers(tile_coords)  # exhaustive — all tiles
+    print_results("k-NN Isolation Outliers (full dataset)", outliers, ["isolation", "year"])
 
     diverse = find_diverse_tiles(tile_coords)
-    print_results("Diverse/Mixed Tiles", diverse, ["variance", "mean_dist"])
+    print_results("Diverse Tiles (inland)", diverse, ["variance", "mean_dist"])
 
-    clusters = find_cluster_centroids(tile_coords)
-    print_results("Cluster Centroids", clusters, ["cluster", "size", "year"])
+    rare = find_rare_clusters(tile_coords)
+    print_results("Rare Cluster Types (smallest clusters)", rare, ["cluster", "size", "year"])
 
     entropy = find_high_entropy(tile_coords)
     print_results("High Entropy Regions", entropy, ["entropy"])
 
-    # Print suggested AOI presets
     console.print(
-        "\n[bold yellow]═══ Suggested AOI Presets for app/src/main.ts ═══[/bold yellow]\n"
+        "\n[bold yellow]═══ Suggested INTERESTING_POINTS for app/src/main.ts ═══[/bold yellow]\n"
     )
 
-    console.print("// --- Temporal hotspots (most change 2024→2025) ---")
+    console.print("// --- Non-polar temporal hotspots ---")
     for r in temporal[:5]:
         console.print(
             f'  {{ name: "Change @({r["lat"]:.1f},{r["lon"]:.1f})", '
-            f'tag: "temporal Δ={r["change_score"]}", '
+            f'tag: "temporal Δ={r["change_score"]}", category: "temporal", '
             f"bbox: {fmt_bbox(r['lat'], r['lon'])} }},"
         )
 
-    console.print("\n// --- Global outliers (rarest surfaces) ---")
+    console.print("\n// --- k-NN isolation outliers (truly weird) ---")
     for r in outliers[:5]:
         console.print(
-            f'  {{ name: "Outlier @({r["lat"]:.1f},{r["lon"]:.1f})", '
-            f'tag: "dist={r["distance"]}", '
+            f'  {{ name: "Isolated @({r["lat"]:.1f},{r["lon"]:.1f})", '
+            f'tag: "knn={r["isolation"]:.1f}", category: "outlier", '
             f"bbox: {fmt_bbox(r['lat'], r['lon'])} }},"
         )
 
-    console.print("\n// --- Mixed landscapes (highest diversity) ---")
+    console.print("\n// --- Rare cluster types ---")
+    for r in rare[:8]:
+        console.print(
+            f'  {{ name: "Rare #{r["cluster"]} @({r["lat"]:.1f},{r["lon"]:.1f})", '
+            f'tag: "n={r["size"]}", category: "cluster", '
+            f"bbox: {fmt_bbox(r['lat'], r['lon'])} }},"
+        )
+
+    console.print("\n// --- Inland diverse tiles ---")
     for r in diverse[:5]:
         console.print(
             f'  {{ name: "Diverse @({r["lat"]:.1f},{r["lon"]:.1f})", '
-            f'tag: "var={r["variance"]:.1f}", '
+            f'tag: "var={r["variance"]:.1f}", category: "diverse", '
             f"bbox: {fmt_bbox(r['lat'], r['lon'])} }},"
         )
 
-    console.print("\n// --- Cluster centroids (representative surface types) ---")
-    for r in clusters[:10]:
-        console.print(
-            f'  {{ name: "Cluster {r["cluster"]} @({r["lat"]:.1f},{r["lon"]:.1f})", '
-            f'tag: "n={r["size"]}", '
-            f"bbox: {fmt_bbox(r['lat'], r['lon'])} }},"
-        )
-
-    console.print("\n// --- High entropy (information-rich) ---")
+    console.print("\n// --- High entropy ---")
     for r in entropy[:5]:
         console.print(
             f'  {{ name: "Entropy @({r["lat"]:.1f},{r["lon"]:.1f})", '
-            f'tag: "H={r["entropy"]:.4f}", '
+            f'tag: "H={r["entropy"]:.4f}", category: "entropy", '
             f"bbox: {fmt_bbox(r['lat'], r['lon'])} }},"
         )
 
