@@ -6,7 +6,7 @@ import duckdbWorkerMvp from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.
 import * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./styles.css";
-const MANIFEST_URL = "https://data.source.coop/geovibes/terrabit/clay-v1_5-binary-sentinel-2/manifest.parquet";
+const MANIFEST_URL = "https://data.source.coop/geospatialml/terrabit/clay-v1_5-binary-sentinel-2/manifest.parquet";
 const DEFAULT_TOP_K = 10;
 const MAX_TOP_K = 50;
 const MAX_MANIFEST_SHARDS = 256;

@@ -27,7 +27,7 @@ import {
 } from "./util";
 
 const MANIFEST_URL =
-  "https://data.source.coop/geovibes/terrabit/clay-v1_5-binary-sentinel-2/manifest.parquet";
+  "https://data.source.coop/geospatialml/terrabit/clay-v1_5-binary-sentinel-2/manifest.parquet";
 const DEFAULT_TOP_K = 25;
 const MAX_TOP_K = 100;
 
