@@ -1678,3 +1678,43 @@ button { cursor: pointer; border: 0; background: none; }
   background: var(--accent-strong);
   border-color: var(--accent);
 }
+
+/* Tutorial simulated click ripple ---------------------------- */
+.tut-ripple {
+  position: fixed;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  animation: tut-ripple-anim 0.85s ease-out forwards;
+  background: transparent;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--tut-ripple-color, #c74633) 70%, transparent);
+}
+
+@keyframes tut-ripple-anim {
+  0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--tut-ripple-color, #c74633) 70%, transparent); }
+  40%  { box-shadow: 0 0 0 14px color-mix(in srgb, var(--tut-ripple-color, #c74633) 40%, transparent); }
+  100% { box-shadow: 0 0 0 28px color-mix(in srgb, var(--tut-ripple-color, #c74633) 0%, transparent); }
+}
+
+/* Cursor dot inside ripple */
+.tut-ripple::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tut-ripple-color, #c74633);
+  opacity: 0.9;
+  animation: tut-ripple-dot 0.85s ease-out forwards;
+}
+
+@keyframes tut-ripple-dot {
+  0%   { opacity: 0.9; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0;   transform: translate(-50%, -50%) scale(0.3); }
+}
