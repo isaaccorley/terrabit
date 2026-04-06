@@ -1619,14 +1619,38 @@ async function fetchExternalEmbedding(lat: number, lng: number): Promise<Candida
     const shards = mResult.toArray() as Array<{ path: string }>;
     if (!shards.length) return null;
 
+    // Phase 1: fetch chips_id + bbox only (no embedding) to find the target row
     for (const shard of shards) {
       const url = resolveShardUrl(shard.path);
-      const rows = await fetchShardCandidates(db, url, {
-        west: lng - 0.01, south: lat - 0.01,
-        east: lng + 0.01, north: lat + 0.01,
-      });
-      const hit = rows.find((r) => containsPoint(r.bbox, lat, lng));
-      if (hit) return hit;
+      const p1 = await conn.query(`
+        SELECT chips_id, bbox
+        FROM read_parquet(${sqlString(url)})
+        WHERE bbox.xmax >= ${lng - 0.01} AND bbox.xmin <= ${lng + 0.01}
+          AND bbox.ymax >= ${lat - 0.01} AND bbox.ymin <= ${lat + 0.01}
+      `.trim());
+      const candidates = p1.toArray() as Array<{
+        chips_id: string;
+        bbox: { xmin: number; ymin: number; xmax: number; ymax: number };
+      }>;
+      const hit = candidates.find((r) => containsPoint(normalizeBBox(r.bbox), lat, lng));
+      if (!hit) continue;
+
+      // Phase 2: fetch just the embedding for that one chips_id
+      const p2 = await conn.query(`
+        SELECT embedding
+        FROM read_parquet(${sqlString(url)})
+        WHERE chips_id = ${sqlString(hit.chips_id)}
+        LIMIT 1
+      `.trim());
+      const embRow = p2.toArray()[0] as { embedding: unknown } | undefined;
+      if (!embRow) continue;
+
+      return {
+        chips_id: hit.chips_id,
+        bbox: normalizeBBox(hit.bbox),
+        embedding: normalizeEmbedding(embRow.embedding),
+        shard_path: url,
+      };
     }
     return null;
   } finally {
