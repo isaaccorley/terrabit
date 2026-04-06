@@ -41,4 +41,14 @@ export type RankedRow = CandidateRow & {
   score: number;
 };
 
-export type ViewMode = "topk" | "heatmap" | "outlier" | "threshold";
+export type NegativePoint = {
+  id: number;
+  lat: number;
+  lng: number;
+  embedding?: Uint8Array;
+  chips_id?: string;
+};
+
+export type ViewMode = "topk" | "heatmap" | "outlier" | "threshold" | "surprise" | "gradient";
+
+export type CombineMethod = "mean" | "and" | "or" | "xor";

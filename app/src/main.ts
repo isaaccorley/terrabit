@@ -9,7 +9,9 @@ import { GlobeMap } from "./map";
 import type {
   BBox,
   CandidateRow,
+  CombineMethod,
   ManifestRow,
+  NegativePoint,
   PositiveMatch,
   PositivePoint,
   RankedRow,
@@ -35,15 +37,21 @@ type AppState = {
   manifestShards: ManifestRow[];
   candidateRows: CandidateRow[];
   positivePoints: PositivePoint[];
+  negativePoints: NegativePoint[];
   positiveMatches: PositiveMatch[];
   results: RankedRow[];
   outlierResults: RankedRow[];
   outlierComputed: boolean;
+  surpriseResults: RankedRow[];
+  surpriseComputed: boolean;
+  gradientResults: RankedRow[];
   topK: number;
   viewMode: ViewMode;
   threshold: number;
   overlayVisible: boolean;
   loading: boolean;
+  combineMethod: CombineMethod;
+  invertSearch: boolean;
 };
 
 const state: AppState = {
@@ -52,15 +60,21 @@ const state: AppState = {
   manifestShards: [],
   candidateRows: [],
   positivePoints: [],
+  negativePoints: [],
   positiveMatches: [],
   results: [],
   outlierResults: [],
   outlierComputed: false,
+  surpriseResults: [],
+  surpriseComputed: false,
+  gradientResults: [],
   topK: DEFAULT_TOP_K,
   viewMode: "topk",
   threshold: Infinity,
   overlayVisible: true,
   loading: false,
+  combineMethod: "mean",
+  invertSearch: false,
 };
 
 let globe: GlobeMap;
@@ -156,6 +170,15 @@ function renderShell(): void {
                 <span class="panel-kicker">02 · Exemplars</span>
               </div>
               <div class="sub-head-actions">
+                <button id="invert-toggle" class="icon-btn" type="button" title="Invert search (find opposites)" aria-label="Invert search">
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="6"/><line x1="3" y1="3" x2="13" y2="13"/></svg>
+                </button>
+                <select id="combine-method" class="combine-select" title="Combine method">
+                  <option value="mean">Mean</option>
+                  <option value="and">AND</option>
+                  <option value="or">OR</option>
+                  <option value="xor">XOR</option>
+                </select>
                 <span id="exemplar-count" class="count-badge">0</span>
                 <button id="clear-points-btn" class="icon-btn" type="button" title="Clear points" aria-label="Clear points">
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
@@ -163,6 +186,15 @@ function renderShell(): void {
               </div>
             </header>
             <ol id="positive-list" class="exemplar-list"></ol>
+            <div id="negative-section" hidden>
+              <div class="neg-header">
+                <span class="panel-kicker neg-kicker">Negatives</span>
+                <button id="clear-negatives-btn" class="icon-btn" type="button" title="Clear negatives" aria-label="Clear negatives">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+                </button>
+              </div>
+              <ol id="negative-list" class="exemplar-list negative-list"></ol>
+            </div>
           </div>
 
           <div class="sub-card sub-card-retrieval">
@@ -196,6 +228,14 @@ function renderShell(): void {
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="10" width="2" height="4"/><rect x="5" y="6" width="2" height="8"/><rect x="8" y="3" width="2" height="11"/><rect x="11" y="8" width="2" height="6"/><line x1="1" y1="7" x2="15" y2="7" stroke-dasharray="2 1.5"/></svg>
                 <span class="view-label">Cutoff</span>
               </button>
+              <button data-view="surprise" class="view-tab" type="button" role="tab" title="Surprise" aria-label="Spatial surprise">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 2v7"/><circle cx="8" cy="12.5" r="1.5"/></svg>
+                <span class="view-label">Surprise</span>
+              </button>
+              <button data-view="gradient" class="view-tab" type="button" role="tab" title="Edge" aria-label="Similarity gradient edge detection">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 14L8 2l6 12"/><line x1="4" y1="10" x2="12" y2="10"/></svg>
+                <span class="view-label">Edge</span>
+              </button>
             </div>
 
             <div id="topk-control" class="slider-row" hidden>
@@ -221,6 +261,26 @@ function renderShell(): void {
               </div>
             </div>
 
+            <div id="surprise-legend" class="heatmap-legend" hidden>
+              <div class="legend-gradient legend-gradient-outlier"></div>
+              <div class="legend-labels">
+                <span>Expected</span>
+                <span>Surprising</span>
+              </div>
+            </div>
+
+            <div id="gradient-legend" class="heatmap-legend" hidden>
+              <div class="legend-gradient legend-gradient-outlier"></div>
+              <div class="legend-labels">
+                <span>Uniform</span>
+                <span>Boundary</span>
+              </div>
+            </div>
+
+            <div id="gradient-msg" class="gradient-msg" hidden>
+              <span class="hint">Add exemplars to use Edge view.</span>
+            </div>
+
             <div id="threshold-control" class="threshold-control" hidden>
               <div id="histogram-wrap" class="histogram-wrap"></div>
               <label class="slider">
@@ -234,6 +294,11 @@ function renderShell(): void {
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 11v3h12v-3"/><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/></svg>
               <span>Export GeoParquet</span>
             </button>
+            <button id="fingerprint-btn" class="btn btn-sm btn-ghost btn-export" type="button" hidden>
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 0 1 0 12"/><path d="M8 5a3 3 0 0 1 0 6"/></svg>
+              <span>Find similar regions</span>
+            </button>
+            <div id="fingerprint-results" class="fingerprint-results" hidden></div>
           </div>
         </div>
       </section>
@@ -260,13 +325,21 @@ function els() {
     mPatches: document.querySelector<HTMLElement>("#m-patches"),
     mRoi: document.querySelector<HTMLElement>("#m-roi"),
     positiveList: document.querySelector<HTMLOListElement>("#positive-list"),
+    negativeList: document.querySelector<HTMLOListElement>("#negative-list"),
+    negativeSection: document.querySelector<HTMLElement>("#negative-section"),
+    clearNegativesBtn: document.querySelector<HTMLButtonElement>("#clear-negatives-btn"),
     exemplarCount: document.querySelector<HTMLElement>("#exemplar-count"),
+    invertToggle: document.querySelector<HTMLButtonElement>("#invert-toggle"),
+    combineSelect: document.querySelector<HTMLSelectElement>("#combine-method"),
     topkSlider: document.querySelector<HTMLInputElement>("#topk-slider"),
     topkValue: document.querySelector<HTMLElement>("#topk-value"),
     topkControl: document.querySelector<HTMLElement>("#topk-control"),
     viewTabs: document.querySelectorAll<HTMLButtonElement>(".view-tab[data-view]"),
     heatmapLegend: document.querySelector<HTMLElement>("#heatmap-legend"),
     outlierLegend: document.querySelector<HTMLElement>("#outlier-legend"),
+    surpriseLegend: document.querySelector<HTMLElement>("#surprise-legend"),
+    gradientLegend: document.querySelector<HTMLElement>("#gradient-legend"),
+    gradientMsg: document.querySelector<HTMLElement>("#gradient-msg"),
     thresholdControl: document.querySelector<HTMLElement>("#threshold-control"),
     thresholdSlider: document.querySelector<HTMLInputElement>("#threshold-slider"),
     thresholdValue: document.querySelector<HTMLElement>("#threshold-value"),
@@ -277,6 +350,8 @@ function els() {
     resultCount: document.querySelector<HTMLElement>("#result-count"),
     resultList: document.querySelector<HTMLOListElement>("#result-list"),
     exportBtn: document.querySelector<HTMLButtonElement>("#export-btn"),
+    fingerprintBtn: document.querySelector<HTMLButtonElement>("#fingerprint-btn"),
+    fingerprintResults: document.querySelector<HTMLElement>("#fingerprint-results"),
     searchWrap: document.querySelector<HTMLElement>("#search-wrap"),
     searchInput: document.querySelector<HTMLInputElement>("#search-input"),
     searchResults: document.querySelector<HTMLUListElement>("#search-results"),
@@ -527,6 +602,9 @@ function updateView(): void {
   if (e.topkControl) e.topkControl.hidden = state.viewMode !== "topk";
   if (e.heatmapLegend) e.heatmapLegend.hidden = state.viewMode !== "heatmap";
   if (e.outlierLegend) e.outlierLegend.hidden = state.viewMode !== "outlier";
+  if (e.surpriseLegend) e.surpriseLegend.hidden = state.viewMode !== "surprise";
+  if (e.gradientLegend) e.gradientLegend.hidden = state.viewMode !== "gradient" || !state.results.length;
+  if (e.gradientMsg) e.gradientMsg.hidden = state.viewMode !== "gradient" || state.results.length > 0;
   if (e.thresholdControl) e.thresholdControl.hidden = state.viewMode !== "threshold";
 
   // Threshold UI
@@ -551,7 +629,49 @@ function updateView(): void {
   if (e.exemplarCount) e.exemplarCount.textContent = String(state.positivePoints.length);
   if (e.clearPointsBtn) e.clearPointsBtn.hidden = state.positivePoints.length === 0;
   if (e.exportBtn) e.exportBtn.hidden = state.results.length === 0;
+  if (e.fingerprintBtn) e.fingerprintBtn.hidden = !(state.bbox && state.positivePoints.length > 0 && state.candidateRows.length > 0);
   e.overlayToggle?.classList.toggle("is-on", state.overlayVisible);
+  e.invertToggle?.classList.toggle("is-on", state.invertSearch);
+  if (e.combineSelect) {
+    e.combineSelect.value = state.combineMethod;
+    e.combineSelect.hidden = state.positivePoints.length < 2;
+  }
+
+  // Negative section
+  if (e.negativeSection) e.negativeSection.hidden = state.negativePoints.length === 0;
+  if (e.negativeList && state.negativePoints.length) {
+    e.negativeList.innerHTML = "";
+    for (const [i, p] of state.negativePoints.entries()) {
+      const li = document.createElement("li");
+      li.className = "exemplar-item neg-item";
+      li.style.setProperty("--i", String(i));
+      li.innerHTML = `
+        <button type="button" data-nid="${p.id}">
+          <span class="ex-index neg-index">N${String(p.id).padStart(2, "0")}</span>
+          <span class="ex-coord">${formatLatLng(p.lat, p.lng)}</span>
+          <span class="ex-remove" aria-hidden="true">\u00d7</span>
+        </button>
+      `;
+      e.negativeList.appendChild(li);
+    }
+    e.negativeList.querySelectorAll<HTMLButtonElement>("button[data-nid]").forEach((b) => {
+      b.addEventListener("click", (ev) => {
+        const target = ev.target as HTMLElement;
+        const nid = Number(b.dataset.nid);
+        if (target.closest(".ex-remove")) {
+          state.negativePoints = state.negativePoints
+            .filter((p) => p.id !== nid)
+            .map((p, idx) => ({ ...p, id: idx + 1 }));
+          globe.setNegatives(state.negativePoints);
+          void scoreCandidates();
+          updateView();
+        } else {
+          const pt = state.negativePoints.find((p) => p.id === nid);
+          if (pt) globe.map.flyTo({ center: [pt.lng, pt.lat], zoom: 13 });
+        }
+      });
+    });
+  }
 
   // Exemplar list
   e.positiveList.innerHTML = "";
@@ -592,15 +712,19 @@ function updateView(): void {
   }
 
   // Results list — pick the right source and slice for the active view
-  const activeResults = state.viewMode === "outlier" ? state.outlierResults : state.results;
+  const activeResults =
+    state.viewMode === "outlier" ? state.outlierResults
+    : state.viewMode === "surprise" ? state.surpriseResults
+    : state.viewMode === "gradient" ? state.gradientResults
+    : state.results;
   const visible = state.viewMode === "topk"
     ? activeResults.slice(0, state.topK)
     : state.viewMode === "threshold"
       ? activeResults.filter((r) => r.score <= state.threshold)
-      : activeResults.slice(0, state.topK); // list shows topK even in heatmap/outlier
+      : activeResults.slice(0, state.topK);
 
   if (e.resultCount) {
-    const needsExemplars = state.viewMode !== "outlier";
+    const needsExemplars = state.viewMode !== "outlier" && state.viewMode !== "surprise";
     if (!state.candidateRows.length) e.resultCount.textContent = "";
     else if (needsExemplars && !state.positivePoints.length) e.resultCount.textContent = "";
     else if (state.viewMode === "threshold")
@@ -758,11 +882,62 @@ function ensureScoringWorker(): Worker {
 
 function initScoringWorker(candidates: CandidateRow[]): void {
   const worker = ensureScoringWorker();
+  const centroids = new Float64Array(candidates.length * 2);
+  for (let i = 0; i < candidates.length; i++) {
+    const c = centroid(candidates[i].bbox);
+    centroids[i * 2] = c.lat;
+    centroids[i * 2 + 1] = c.lng;
+  }
   worker.postMessage({
     type: "init",
     embeddings: candidates.map((c) => new Uint8Array(c.embedding)),
+    centroids,
   });
   scoringWorkerReady = true;
+}
+
+function combineEmbeddings(embeddings: Uint8Array[], method: CombineMethod): Uint8Array[] {
+  if (embeddings.length <= 1 || method === "mean") return embeddings;
+  const len = embeddings[0].length;
+  const result = new Uint8Array(len);
+  if (method === "and") {
+    result.set(embeddings[0]);
+    for (let e = 1; e < embeddings.length; e++) {
+      for (let i = 0; i < len; i++) result[i] &= embeddings[e][i];
+    }
+  } else if (method === "or") {
+    for (let e = 0; e < embeddings.length; e++) {
+      for (let i = 0; i < len; i++) result[i] |= embeddings[e][i];
+    }
+  } else if (method === "xor") {
+    for (let e = 0; e < embeddings.length; e++) {
+      for (let i = 0; i < len; i++) result[i] ^= embeddings[e][i];
+    }
+  }
+  return [result];
+}
+
+function maybeInvertEmbedding(emb: Uint8Array): Uint8Array {
+  if (!state.invertSearch) return emb;
+  const inv = new Uint8Array(emb.length);
+  for (let i = 0; i < emb.length; i++) inv[i] = emb[i] ^ 0xFF;
+  return inv;
+}
+
+function resolveNegativeEmbeddings(): Uint8Array[] {
+  return state.negativePoints.flatMap((point) => {
+    if (point.embedding) return [maybeInvertEmbedding(point.embedding)];
+    const intersecting = state.candidateRows.filter((c) => containsPoint(c.bbox, point.lat, point.lng));
+    if (!intersecting.length) return [];
+    let best = intersecting[0];
+    let bestD = Number.POSITIVE_INFINITY;
+    for (const option of intersecting) {
+      const c = centroid(option.bbox);
+      const d = distanceSquared(point.lat, point.lng, c.lat, c.lng);
+      if (d < bestD) { bestD = d; best = option; }
+    }
+    return [maybeInvertEmbedding(best.embedding)];
+  });
 }
 
 async function scoreWithWorker(exemplars: CandidateRow[]): Promise<RankedRow[]> {
@@ -770,6 +945,9 @@ async function scoreWithWorker(exemplars: CandidateRow[]): Promise<RankedRow[]> 
   const worker = ensureScoringWorker();
   const requestId = ++scoringRequestId;
   const excludeIndices = new Set(exemplars.map((ex) => state.candidateRows.indexOf(ex)).filter((i) => i >= 0));
+  let posEmbeddings = exemplars.map((ex) => maybeInvertEmbedding(new Uint8Array(ex.embedding)));
+  posEmbeddings = combineEmbeddings(posEmbeddings, state.combineMethod);
+  const negEmbeddings = resolveNegativeEmbeddings();
   const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
     const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
       if (event.data.type !== "score-result" || event.data.requestId !== requestId) return;
@@ -788,7 +966,8 @@ async function scoreWithWorker(exemplars: CandidateRow[]): Promise<RankedRow[]> 
     worker.postMessage({
       type: "score",
       requestId,
-      exemplars: exemplars.map((ex) => new Uint8Array(ex.embedding)),
+      exemplars: posEmbeddings,
+      negatives: negEmbeddings,
       excludeIndices: [...excludeIndices],
     });
   });
@@ -872,9 +1051,16 @@ async function scoreCandidates(): Promise<void> {
 
 /* ---------------------------------------------------------- Overlay toggle */
 
+function activeResultsForMode(): RankedRow[] {
+  if (state.viewMode === "outlier") return state.outlierResults;
+  if (state.viewMode === "surprise") return state.surpriseResults;
+  if (state.viewMode === "gradient") return state.gradientResults;
+  return state.results;
+}
+
 function applyOverlay(): void {
   if (state.overlayVisible) {
-    const activeResults = state.viewMode === "outlier" ? state.outlierResults : state.results;
+    const activeResults = activeResultsForMode();
     if (state.viewMode === "threshold") {
       const filtered = activeResults.filter((r) => r.score <= state.threshold);
       globe.setResults(filtered, filtered.length, state.viewMode);
@@ -950,6 +1136,204 @@ async function computeOutliers(): Promise<void> {
   updateView();
 }
 
+/* ---------------------------------------------------------- Surprise scoring */
+
+async function computeSurprise(): Promise<void> {
+  if (!scoringWorkerReady || !state.candidateRows.length) return;
+  if (state.surpriseComputed) return;
+
+  setStatus("Computing spatial surprise scores\u2026");
+  const worker = ensureScoringWorker();
+  const requestId = ++scoringRequestId;
+  const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
+    const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
+      if (event.data.type !== "surprise-result" || event.data.requestId !== requestId) return;
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+      resolve(event.data.results);
+    };
+    const onError = (event: ErrorEvent) => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+      reject(event.error ?? new Error(event.message));
+    };
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError);
+    worker.postMessage({ type: "surprise", requestId, k: 8 });
+  });
+
+  state.surpriseResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
+  state.surpriseComputed = true;
+  globe.setResults(state.surpriseResults, state.topK, "surprise");
+  setStatus(`Surprise analysis: ${state.surpriseResults.length} patches scored. Brightest = most surprising.`);
+  updateView();
+}
+
+/* ---------------------------------------------------------- Gradient scoring */
+
+async function computeGradient(): Promise<void> {
+  if (!scoringWorkerReady || !state.candidateRows.length || !state.results.length) return;
+
+  setStatus("Computing similarity gradient\u2026");
+  const worker = ensureScoringWorker();
+  const requestId = ++scoringRequestId;
+  const scoreArr = new Float64Array(state.candidateRows.length);
+  const scoreMap = new Map<string, number>();
+  for (const r of state.results) scoreMap.set(r.chips_id, r.score);
+  for (let i = 0; i < state.candidateRows.length; i++) {
+    scoreArr[i] = scoreMap.get(state.candidateRows[i].chips_id) ?? 0;
+  }
+  const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
+    const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
+      if (event.data.type !== "gradient-result" || event.data.requestId !== requestId) return;
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+      resolve(event.data.results);
+    };
+    const onError = (event: ErrorEvent) => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+      reject(event.error ?? new Error(event.message));
+    };
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError);
+    worker.postMessage({ type: "gradient", requestId, scores: scoreArr, k: 6 });
+  });
+
+  state.gradientResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
+  globe.setResults(state.gradientResults, state.topK, "gradient");
+  setStatus(`Gradient analysis: ${state.gradientResults.length} patches scored. Brightest = strongest boundary.`);
+  updateView();
+}
+
+/* ---------------------------------------------------------- Region fingerprint */
+
+async function regionFingerprint(): Promise<void> {
+  if (!state.positivePoints.length || !state.candidateRows.length) return;
+
+  const e = els();
+  setStatus("Computing region fingerprint\u2026");
+
+  // 1. Compute fingerprint: majority-vote binary embedding from positives
+  const matches = resolvePositiveMatches();
+  const exemplarEmbs = matches.map((m) => m.candidate.embedding);
+  if (!exemplarEmbs.length) { setStatus("No matched exemplar patches."); return; }
+  const len = exemplarEmbs[0].length;
+  const fingerprint = new Uint8Array(len);
+  for (let byteIdx = 0; byteIdx < len; byteIdx++) {
+    let bits = 0;
+    for (let bit = 0; bit < 8; bit++) {
+      let ones = 0;
+      for (const emb of exemplarEmbs) {
+        if ((emb[byteIdx] >> bit) & 1) ones++;
+      }
+      if (ones > exemplarEmbs.length / 2) bits |= (1 << bit);
+    }
+    fingerprint[byteIdx] = bits;
+  }
+
+  // 2. Sample up to 20 random shards from manifest (exclude current)
+  try {
+    const db = await getDuckDB();
+    const conn = await db.connect();
+    const allManifest = await conn.query(`
+      SELECT path, rows, xmin, ymin, xmax, ymax
+      FROM read_parquet(${sqlString(MANIFEST_URL)})
+      ORDER BY path
+    `.trim());
+    const allShards = allManifest.toArray() as ManifestRow[];
+    await conn.close();
+
+    const currentPaths = new Set(state.manifestShards.map((s) => s.path));
+    const candidates = allShards.filter((s) => !currentPaths.has(s.path));
+    // Shuffle and take 20
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    const sampled = candidates.slice(0, 20);
+
+    if (!sampled.length) { setStatus("No other shards to compare."); return; }
+
+    // 3. For each shard, fetch a few patches and compute mean hamming
+    type ShardResult = { shard: ManifestRow; meanDist: number };
+    const shardResults: ShardResult[] = [];
+
+    for (let si = 0; si < sampled.length; si++) {
+      const shard = sampled[si];
+      setStatus(`Fingerprinting region ${si + 1}/${sampled.length}\u2026`);
+      try {
+        const url = resolveShardUrl(shard.path);
+        const conn2 = await db.connect();
+        const result = await conn2.query(`
+          SELECT chips_id, bbox, embedding
+          FROM read_parquet(${sqlString(url)})
+          LIMIT 50
+        `.trim());
+        const rows = result.toArray() as Array<{
+          chips_id: string;
+          bbox: { xmin: number; ymin: number; xmax: number; ymax: number };
+          embedding: unknown;
+        }>;
+        await conn2.close();
+        if (!rows.length) continue;
+        let totalDist = 0;
+        for (const row of rows) {
+          const emb = normalizeEmbedding(row.embedding);
+          let d = 0;
+          for (let i = 0; i < len; i++) {
+            let x = fingerprint[i] ^ emb[i];
+            while (x) { d += x & 1; x >>= 1; }
+          }
+          totalDist += d;
+        }
+        shardResults.push({ shard, meanDist: totalDist / rows.length });
+      } catch {
+        // skip failed shards
+      }
+    }
+
+    shardResults.sort((a, b) => a.meanDist - b.meanDist);
+
+    // 4. Render results
+    if (e.fingerprintResults) {
+      e.fingerprintResults.hidden = false;
+      e.fingerprintResults.innerHTML = `
+        <div class="fp-header">Similar regions <button class="fp-close" type="button">\u00d7</button></div>
+        <ul class="fp-list">
+          ${shardResults.slice(0, 10).map((sr, i) => {
+            const cx = ((sr.shard.xmin + sr.shard.xmax) / 2).toFixed(1);
+            const cy = ((sr.shard.ymin + sr.shard.ymax) / 2).toFixed(1);
+            return `<li><button type="button" data-fp="${i}" class="fp-item">
+              <span class="rank">${String(i + 1).padStart(2, "0")}</span>
+              <span class="rank-body">
+                <span class="rank-coord">${cy}\u00b0, ${cx}\u00b0</span>
+                <span class="rank-chip">${sr.shard.path.split("/").pop()}</span>
+              </span>
+              <span class="rank-score">${sr.meanDist.toFixed(1)}</span>
+            </button></li>`;
+          }).join("")}
+        </ul>`;
+
+      e.fingerprintResults.querySelector(".fp-close")?.addEventListener("click", () => {
+        if (e.fingerprintResults) e.fingerprintResults.hidden = true;
+      });
+      e.fingerprintResults.querySelectorAll<HTMLButtonElement>("button[data-fp]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const idx = Number(btn.dataset.fp);
+          const sr = shardResults[idx];
+          const bbox: BBox = { west: sr.shard.xmin, south: sr.shard.ymin, east: sr.shard.xmax, north: sr.shard.ymax };
+          globe.fitBounds(bbox, { padding: 60, maxZoom: 11 });
+        });
+      });
+    }
+
+    setStatus(`Found ${shardResults.length} similar regions.`);
+  } catch (err) {
+    setStatus(`Fingerprint failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /* ---------------------------------------------------------- GeoParquet export */
 
 async function exportGeoParquet(): Promise<void> {
@@ -1012,20 +1396,25 @@ async function loadRegion(bbox: BBox): Promise<void> {
   state.bbox = bbox;
   const externalExemplars = state.positivePoints.filter((p) => p.embedding);
   state.positivePoints = externalExemplars.map((p, i) => ({ ...p, id: i + 1 }));
+  state.negativePoints = [];
   state.positiveMatches = [];
   state.results = [];
   state.outlierResults = [];
   state.outlierComputed = false;
+  state.surpriseResults = [];
+  state.surpriseComputed = false;
+  state.gradientResults = [];
   state.threshold = Infinity;
   state.candidateRows = [];
   state.manifestShards = [];
   state.loading = true;
   globe.setAoi(bbox);
   globe.setPositives(state.positivePoints);
+  globe.setNegatives(state.negativePoints);
   globe.setPositiveMatches([]);
   globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
-  setStatus("Fetching intersecting shards…");
+  setStatus("Fetching intersecting shards\u2026");
   updateView();
 
   try {
@@ -1188,12 +1577,42 @@ function addPositive(lat: number, lng: number): void {
   }
 }
 
+function addNegative(lat: number, lng: number): void {
+  if (!state.bbox || !state.candidateRows.length) return;
+  const isInsideAoi = containsPoint(state.bbox, lat, lng);
+  if (!isInsideAoi) return;
+
+  const patch = findNearestCandidate(lat, lng);
+  if (patch) {
+    const existing = state.negativePoints.some((p) => {
+      const ep = findNearestCandidate(p.lat, p.lng);
+      return ep && ep.chips_id === patch.chips_id;
+    });
+    if (existing) return;
+  }
+  state.negativePoints.push({ id: state.negativePoints.length + 1, lat, lng });
+  globe.setNegatives(state.negativePoints);
+  void scoreCandidates();
+  updateView();
+}
+
+function clearNegatives(): void {
+  if (!state.negativePoints.length) return;
+  state.negativePoints = [];
+  globe.setNegatives([]);
+  void scoreCandidates();
+  updateView();
+}
+
 function clearPoints(): void {
-  if (!state.positivePoints.length) return;
+  if (!state.positivePoints.length && !state.negativePoints.length) return;
   state.positivePoints = [];
+  state.negativePoints = [];
   state.positiveMatches = [];
   state.results = [];
+  state.gradientResults = [];
   globe.setPositives([]);
+  globe.setNegatives([]);
   globe.setPositiveMatches([]);
   globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
@@ -1206,15 +1625,22 @@ function clearRegion(): void {
   state.manifestShards = [];
   state.candidateRows = [];
   state.positivePoints = [];
+  state.negativePoints = [];
   state.positiveMatches = [];
   state.results = [];
   state.topK = DEFAULT_TOP_K;
   state.viewMode = "topk";
   state.outlierResults = [];
   state.outlierComputed = false;
+  state.surpriseResults = [];
+  state.surpriseComputed = false;
+  state.gradientResults = [];
   state.threshold = Infinity;
+  state.invertSearch = false;
+  state.combineMethod = "mean";
   globe.setAoi(null);
   globe.setPositives([]);
+  globe.setNegatives([]);
   globe.setPositiveMatches([]);
   globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
@@ -1259,6 +1685,14 @@ function wire(): void {
         void computeOutliers();
       } else if (mode === "outlier") {
         globe.setResults(state.outlierResults, state.topK, mode);
+      } else if (mode === "surprise" && !state.surpriseComputed) {
+        void computeSurprise();
+      } else if (mode === "surprise") {
+        globe.setResults(state.surpriseResults, state.topK, mode);
+      } else if (mode === "gradient") {
+        if (state.results.length) {
+          void computeGradient();
+        }
       } else if (mode === "threshold") {
         const filtered = state.results.filter((r) => r.score <= state.threshold);
         globe.setResults(filtered, filtered.length, mode);
@@ -1268,6 +1702,26 @@ function wire(): void {
       updateView();
     });
   });
+
+  // Invert toggle
+  e.invertToggle?.addEventListener("click", () => {
+    state.invertSearch = !state.invertSearch;
+    void scoreCandidates();
+    updateView();
+  });
+
+  // Combine method
+  e.combineSelect?.addEventListener("change", (ev) => {
+    state.combineMethod = (ev.currentTarget as HTMLSelectElement).value as CombineMethod;
+    void scoreCandidates();
+    updateView();
+  });
+
+  // Clear negatives
+  e.clearNegativesBtn?.addEventListener("click", clearNegatives);
+
+  // Fingerprint
+  e.fingerprintBtn?.addEventListener("click", () => void regionFingerprint());
 
   // Geocoder search
   e.searchInput?.addEventListener("input", (ev) => {
@@ -1345,6 +1799,7 @@ function bootstrap(): void {
       void loadRegion(bbox);
     },
     onAoiClick: (lat, lng) => addPositive(lat, lng),
+    onNegativeClick: (lat, lng) => addNegative(lat, lng),
     onResultHover: (row) => globe.setPreview(row),
     onResultPick: (row) => {
       const c = centroid(row.bbox);

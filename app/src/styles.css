@@ -855,7 +855,7 @@ button { cursor: pointer; border: 0; background: none; }
 
 .view-toggle {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 3px;
   padding: 3px;
   border: 1px solid var(--line);
@@ -1152,4 +1152,151 @@ button { cursor: pointer; border: 0; background: none; }
   }
   .hud-panel-left { top: 96px; bottom: auto; max-height: 40vh; }
   .hud-panel-right { top: auto; bottom: 12px; max-height: 45vh; }
+}
+
+/* ------------------------------------------------------ Negative exemplars */
+
+.neg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.neg-kicker {
+  color: #3b82f6 !important;
+}
+.negative-list {
+  padding-bottom: 4px;
+}
+.neg-item button:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.08);
+}
+.neg-index {
+  color: #3b82f6 !important;
+}
+.neg-item button:hover .ex-remove { color: #3b82f6; }
+
+/* ------------------------------------------------------ Invert toggle */
+
+.icon-btn.is-on.invert-active,
+#invert-toggle.is-on {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+/* ------------------------------------------------------ Combine select */
+
+.combine-select {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(243, 236, 216, 0.035);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 160ms;
+}
+.combine-select:hover {
+  border-color: var(--line-strong);
+}
+.combine-select:focus {
+  border-color: rgba(208, 84, 44, 0.48);
+}
+.combine-select[hidden] { display: none; }
+.combine-select option {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+
+/* ------------------------------------------------------ Outlier/surprise/gradient legend */
+
+.legend-gradient-outlier {
+  background: linear-gradient(
+    90deg,
+    rgb(240, 249, 33) 0%,
+    rgb(248, 149, 64) 25%,
+    rgb(204, 71, 120) 50%,
+    rgb(126, 3, 167) 75%,
+    rgb(13, 8, 135) 100%
+  ) !important;
+}
+
+.gradient-msg {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(243, 236, 216, 0.02);
+}
+.gradient-msg[hidden] { display: none; }
+
+/* ------------------------------------------------------ Fingerprint results */
+
+.fingerprint-results {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(14, 11, 8, 0.6);
+  backdrop-filter: blur(12px);
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.fingerprint-results[hidden] { display: none; }
+
+.fp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.fp-close {
+  font-size: 16px;
+  color: var(--muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0 4px;
+}
+.fp-close:hover { color: var(--text); }
+
+.fp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fp-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 160ms, background 160ms;
+  cursor: pointer;
+}
+.fp-item:hover {
+  border-color: rgba(208, 84, 44, 0.42);
+  background: rgba(208, 84, 44, 0.07);
 }

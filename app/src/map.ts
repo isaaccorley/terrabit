@@ -3,6 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import type {
   BBox,
+  NegativePoint,
   PositiveMatch,
   PositivePoint,
   RankedRow,
@@ -18,6 +19,7 @@ const SENTINEL_ATTRIBUTION =
 export type MapCallbacks = {
   onDrawComplete: (bbox: BBox) => void;
   onAoiClick: (lat: number, lng: number) => void;
+  onNegativeClick: (lat: number, lng: number) => void;
   onResultHover: (result: RankedRow | null) => void;
   onResultPick: (result: RankedRow) => void;
   getBBox: () => BBox | null;
@@ -146,7 +148,7 @@ export class GlobeMap {
 
   private addSources(): void {
     const empty = { type: "FeatureCollection", features: [] } as const;
-    for (const id of ["aoi", "positives", "positive-matches", "results", "preview", "draft"]) {
+    for (const id of ["aoi", "positives", "negatives", "positive-matches", "results", "preview", "draft"]) {
       this.map.addSource(id, { type: "geojson", data: empty as any });
     }
   }
@@ -256,6 +258,29 @@ export class GlobeMap {
         "circle-stroke-width": 1.5,
       },
     });
+
+    // Negative points (blue)
+    this.map.addLayer({
+      id: "negatives-halo",
+      type: "circle",
+      source: "negatives",
+      paint: {
+        "circle-radius": 11,
+        "circle-color": "#3b82f6",
+        "circle-opacity": 0.18,
+      },
+    });
+    this.map.addLayer({
+      id: "negatives-dot",
+      type: "circle",
+      source: "negatives",
+      paint: {
+        "circle-radius": 5,
+        "circle-color": "#3b82f6",
+        "circle-stroke-color": "#f3ecd8",
+        "circle-stroke-width": 1.5,
+      },
+    });
   }
 
   private easeIntro(): void {
@@ -289,6 +314,20 @@ export class GlobeMap {
   setPositives(points: PositivePoint[]): void {
     this.whenReady(() => {
       const src = this.map.getSource("positives") as maplibregl.GeoJSONSource;
+      src?.setData({
+        type: "FeatureCollection",
+        features: points.map((p) => ({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [p.lng, p.lat] },
+          properties: { id: p.id },
+        })),
+      });
+    });
+  }
+
+  setNegatives(points: NegativePoint[]): void {
+    this.whenReady(() => {
+      const src = this.map.getSource("negatives") as maplibregl.GeoJSONSource;
       src?.setData({
         type: "FeatureCollection",
         features: points.map((p) => ({
@@ -441,8 +480,22 @@ export class GlobeMap {
   }
 
   private wireClicks(): void {
+    // Right-click → negative exemplar
+    this.map.on("contextmenu", (e) => {
+      e.originalEvent.preventDefault();
+      if (this.draw.startLngLat) return;
+      const { lat, lng } = e.lngLat;
+      this.cb.onNegativeClick(lat, lng);
+    });
+
     this.map.on("click", (e) => {
       if (this.draw.startLngLat) return;
+      // Shift+click → negative exemplar
+      if (e.originalEvent.shiftKey && !this.draw.armed) {
+        const { lat, lng } = e.lngLat;
+        this.cb.onNegativeClick(lat, lng);
+        return;
+      }
       // Click on a result tile -> treat as picking an exemplar
       const hits = this.map.queryRenderedFeatures(e.point, {
         layers: ["results-fill"],
