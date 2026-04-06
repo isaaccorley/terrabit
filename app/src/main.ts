@@ -310,8 +310,8 @@ function renderShell(): void {
         <ul id="aoi-list" class="aoi-list"></ul>
       </nav>
 
-      <button id="tutorial-trigger" class="tutorial-trigger" type="button" aria-label="Open tutorial" title="Help &amp; tutorial">?</button>
     </div>
+    <button id="tutorial-trigger" class="tutorial-trigger" type="button" aria-label="Open tutorial" title="Help &amp; tutorial">?</button>
   `;
 }
 
@@ -2049,6 +2049,10 @@ function tutorialRender(): void {
     </div>
   `;
 
+  // Force a layout read so the browser registers the initial state before transitioning
+  void overlay.offsetWidth;
+  void card.offsetWidth;
+
   // Make visible
   overlay.classList.add("is-active");
   card.classList.add("is-active");
@@ -2088,6 +2092,7 @@ function tutorialGo(step: number): void {
 }
 
 function tutorialStart(): void {
+  console.log("[tutorial] start");
   tutorialState.active = true;
   tutorialState.step = 0;
   tutorialRender();
@@ -2104,7 +2109,11 @@ function tutorialStop(): void {
 
 function wireTutorial(): void {
   const btn = document.querySelector<HTMLButtonElement>("#tutorial-trigger");
-  btn?.addEventListener("click", tutorialStart);
+  console.log("[tutorial] wire, btn found:", !!btn);
+  btn?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    tutorialStart();
+  });
 
   // Auto-show on first visit
   if (!localStorage.getItem(TUTORIAL_STORAGE_KEY)) {

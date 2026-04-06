@@ -1312,17 +1312,17 @@ button { cursor: pointer; border: 0; background: none; }
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--panel-strong);
-  border: 1px solid var(--line-strong);
-  color: var(--muted);
+  background: rgba(32, 26, 21, 0.92);
+  border: 1.5px solid var(--accent);
+  color: var(--text);
   font-family: "Fraunces", serif;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1;
   display: grid;
   place-items: center;
   cursor: pointer;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 0 12px rgba(208, 84, 44, 0.25), var(--shadow-md);
   backdrop-filter: blur(12px) saturate(140%);
   transition: color 200ms, border-color 200ms, background 200ms, transform 200ms;
 }
