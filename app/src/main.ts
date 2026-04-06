@@ -2213,31 +2213,54 @@ type TutorialStep = {
   body: string;
   placement?: TutorialPlacement;
   padding?: number;        // extra glow padding around spotlight (px)
+  onEnter?: () => void;   // side-effect fired when step becomes active
 };
 
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
     title: "Welcome to terrabit",
-    body: "Search Earth's surface using binary embeddings — point at a patch of land, and terrabit finds everywhere that looks like it.",
+    body: "terrabit finds every satellite patch on Earth that looks like a location you point at — powered by compact binary embeddings. This short tour walks you through a live search.",
     placement: "center",
   },
   {
-    target: "#aoi-nav",
-    title: "Pick or draw a region",
-    body: "Select a preset AOI from this panel, <em>or</em> use the search bar to fly to any location and click <strong>Draw region</strong> to define your own area.",
-    placement: "left",
-    padding: 10,
+    title: "Step 1 — fly somewhere interesting",
+    body: "We've zoomed to the agricultural plains of central Kansas — a compact, high-contrast area that loads in seconds. You can search any location with the bar at the top, or spin and zoom the globe yourself.",
+    placement: "center",
+    onEnter: () => {
+      globe.map.flyTo({ center: [-98.35, 38.7], zoom: 10, duration: 1800 });
+    },
+  },
+  {
+    target: "#draw-btn",
+    title: "Step 2 — draw a small region",
+    body: "Click <strong>Draw region</strong>, then drag a box on the map — or hold <kbd>Shift</kbd> and drag anywhere. Keep it small (≈15×15 km) so patches load in a few seconds. You can also click any preset in the AOI panel.",
+    placement: "right",
+    padding: 12,
   },
   {
     target: "#positive-list",
-    title: "Place exemplars to search",
-    body: "<strong>Click</strong> anywhere on the map to mark a positive exemplar — terrabit scores every patch by similarity. <strong>Right-click</strong> (or <strong>Shift+click</strong>) to add negatives that push unwanted features away.",
+    title: "Step 3 — click a positive exemplar",
+    body: "Once the status bar says patches are loaded, <strong>click anywhere on the map</strong> to place your first exemplar. Try a field, a rooftop, or a road intersection. terrabit instantly scores and ranks every patch by binary similarity.",
     placement: "right",
     padding: 8,
   },
   {
-    title: "That's it — go explore",
-    body: "Results update instantly. Switch view modes, add more exemplars, or try <strong>Find similar regions</strong> to discover places elsewhere on the globe that look the same.",
+    target: "#negative-section",
+    title: "Step 4 — add a negative to refine",
+    body: "<strong>Right-click</strong> (or <strong>Shift+click</strong>) on something you want to push <em>away</em> from results — a river, a cloud, a bare lot. Negatives subtract that pattern from the query in one click.",
+    placement: "right",
+    padding: 8,
+  },
+  {
+    target: ".view-toggle",
+    title: "Step 5 — explore view modes",
+    body: "<strong>Top-K</strong> pins the closest matches. <strong>Heat</strong> paints similarity across the whole region. <strong>Outlier</strong> surfaces unusual patches. <strong>Surprise</strong> finds tiles that don't match their geographic neighbors. <strong>Edge</strong> traces similarity boundaries.",
+    placement: "right",
+    padding: 10,
+  },
+  {
+    title: "You're ready",
+    body: "Add more exemplars, flip <strong>Invert</strong> to search for opposites, adjust the Top-K slider, or hit <strong>Find similar regions</strong> to discover matching landscapes anywhere on Earth.",
     placement: "center",
   },
 ];
@@ -2344,6 +2367,7 @@ function tutorialRender(): void {
   const { overlay, card } = tutorialGetEl();
   const step = TUTORIAL_STEPS[tutorialState.step];
   if (!step) return;
+  step.onEnter?.();
 
   const target = step.target ? document.querySelector(step.target) : null;
   const placement = step.placement ?? "bottom";
