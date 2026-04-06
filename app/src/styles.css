@@ -1308,7 +1308,7 @@ button { cursor: pointer; border: 0; background: none; }
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 900;
+  z-index: 1020;
   width: 36px;
   height: 36px;
   border-radius: 50%;

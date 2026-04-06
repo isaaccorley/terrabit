@@ -1817,8 +1817,6 @@ function bootstrap(): void {
   wireTutorial();
 }
 
-bootstrap();
-
 /* ================================================================ Tutorial */
 
 type TutorialPlacement = "top" | "bottom" | "left" | "right" | "center";
@@ -2092,7 +2090,6 @@ function tutorialGo(step: number): void {
 }
 
 function tutorialStart(): void {
-  console.log("[tutorial] start");
   tutorialState.active = true;
   tutorialState.step = 0;
   tutorialRender();
@@ -2109,10 +2106,10 @@ function tutorialStop(): void {
 
 function wireTutorial(): void {
   const btn = document.querySelector<HTMLButtonElement>("#tutorial-trigger");
-  console.log("[tutorial] wire, btn found:", !!btn);
   btn?.addEventListener("click", (ev) => {
     ev.stopPropagation();
-    tutorialStart();
+    if (tutorialState.active) tutorialStop();
+    else tutorialStart();
   });
 
   // Auto-show on first visit
@@ -2142,3 +2139,5 @@ function wireTutorial(): void {
     if (card && card.contains(t)) return;
   });
 }
+
+bootstrap();
