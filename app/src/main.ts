@@ -328,12 +328,7 @@ function renderShell(): void {
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 11v3h12v-3"/><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/></svg>
                 <span>Export</span>
               </button>
-              <button id="fingerprint-btn" class="btn btn-sm btn-ghost action-btn" type="button" hidden>
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 0 1 0 12"/><path d="M8 5a3 3 0 0 1 0 6"/></svg>
-                <span>Find similar</span>
-              </button>
             </div>
-            <div id="fingerprint-results" class="fingerprint-results" hidden></div>
           </div>
         </div>
       </section>
@@ -400,8 +395,6 @@ function els() {
     resultCount: document.querySelector<HTMLElement>("#result-count"),
     resultList: document.querySelector<HTMLOListElement>("#result-list"),
     exportBtn: document.querySelector<HTMLButtonElement>("#export-btn"),
-    fingerprintBtn: document.querySelector<HTMLButtonElement>("#fingerprint-btn"),
-    fingerprintResults: document.querySelector<HTMLElement>("#fingerprint-results"),
     searchWrap: document.querySelector<HTMLElement>("#search-wrap"),
     searchInput: document.querySelector<HTMLInputElement>("#search-input"),
     searchResults: document.querySelector<HTMLUListElement>("#search-results"),
@@ -778,7 +771,6 @@ function updateView(): void {
   if (e.exemplarCount) e.exemplarCount.textContent = String(state.positivePoints.length);
   if (e.clearPointsBtn) e.clearPointsBtn.hidden = state.positivePoints.length === 0;
   if (e.exportBtn) e.exportBtn.hidden = state.results.length === 0;
-  if (e.fingerprintBtn) e.fingerprintBtn.hidden = !(state.bboxes.length > 0 && state.positivePoints.length > 0 && state.candidateRows.length > 0);
   e.overlayToggle?.classList.toggle("is-on", state.overlayVisible);
   e.invertToggle?.classList.toggle("is-on", state.invertSearch);
   if (e.combineSelect) {
@@ -1414,139 +1406,6 @@ async function computeGradient(background = false): Promise<void> {
   }
 }
 
-/* ---------------------------------------------------------- Region fingerprint */
-
-async function regionFingerprint(): Promise<void> {
-  if (!state.positivePoints.length || !state.candidateRows.length) return;
-
-  const e = els();
-  setStatus("Computing region fingerprint\u2026");
-
-  // 1. Compute fingerprint: majority-vote binary embedding from positives
-  const matches = resolvePositiveMatches();
-  const exemplarEmbs = matches.map((m) => m.candidate.embedding);
-  if (!exemplarEmbs.length) { setStatus("No matched exemplar patches."); return; }
-  const len = exemplarEmbs[0].length;
-  const fingerprint = new Uint8Array(len);
-  for (let byteIdx = 0; byteIdx < len; byteIdx++) {
-    let bits = 0;
-    for (let bit = 0; bit < 8; bit++) {
-      let ones = 0;
-      for (const emb of exemplarEmbs) {
-        if ((emb[byteIdx] >> bit) & 1) ones++;
-      }
-      if (ones > exemplarEmbs.length / 2) bits |= (1 << bit);
-    }
-    fingerprint[byteIdx] = bits;
-  }
-
-  // 2. Sample up to 20 random shards from manifest (exclude current)
-  try {
-    const db = await getDuckDB();
-    const conn = await db.connect();
-    const allManifest = await conn.query(`
-      SELECT path, rows, xmin, ymin, xmax, ymax
-      FROM read_parquet(${sqlString(MANIFEST_URL)})
-      ORDER BY path
-    `.trim());
-    const allShards = allManifest.toArray() as ManifestRow[];
-    await conn.close();
-
-    // Exclude shards that spatially overlap any active AOI
-    const currentPaths = new Set(allShards.filter((s) =>
-      state.bboxes.some((entry) =>
-        !(s.xmax < entry.bbox.west || s.xmin > entry.bbox.east || s.ymax < entry.bbox.south || s.ymin > entry.bbox.north)
-      )
-    ).map((s) => s.path));
-    const candidates = allShards.filter((s) => !currentPaths.has(s.path));
-    // Shuffle and take 20
-    for (let i = candidates.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-    }
-    const sampled = candidates.slice(0, 20);
-
-    if (!sampled.length) { setStatus("No other shards to compare."); return; }
-
-    // 3. For each shard, fetch a few patches and compute mean hamming
-    type ShardResult = { shard: ManifestRow; meanDist: number };
-    const shardResults: ShardResult[] = [];
-
-    for (let si = 0; si < sampled.length; si++) {
-      const shard = sampled[si];
-      setStatus(`Fingerprinting region ${si + 1}/${sampled.length}\u2026`);
-      try {
-        const url = resolveShardUrl(shard.path);
-        const conn2 = await db.connect();
-        const result = await conn2.query(`
-          SELECT chips_id, bbox, embedding
-          FROM read_parquet(${sqlString(url)})
-          LIMIT 50
-        `.trim());
-        const rows = result.toArray() as Array<{
-          chips_id: string;
-          bbox: { xmin: number; ymin: number; xmax: number; ymax: number };
-          embedding: unknown;
-        }>;
-        await conn2.close();
-        if (!rows.length) continue;
-        let totalDist = 0;
-        for (const row of rows) {
-          const emb = normalizeEmbedding(row.embedding);
-          let d = 0;
-          for (let i = 0; i < len; i++) {
-            let x = fingerprint[i] ^ emb[i];
-            while (x) { d += x & 1; x >>= 1; }
-          }
-          totalDist += d;
-        }
-        shardResults.push({ shard, meanDist: totalDist / rows.length });
-      } catch {
-        // skip failed shards
-      }
-    }
-
-    shardResults.sort((a, b) => a.meanDist - b.meanDist);
-
-    // 4. Render results
-    if (e.fingerprintResults) {
-      e.fingerprintResults.hidden = false;
-      e.fingerprintResults.innerHTML = `
-        <div class="fp-header">Similar regions <button class="fp-close" type="button">\u00d7</button></div>
-        <ul class="fp-list">
-          ${shardResults.slice(0, 10).map((sr, i) => {
-            const cx = ((sr.shard.xmin + sr.shard.xmax) / 2).toFixed(1);
-            const cy = ((sr.shard.ymin + sr.shard.ymax) / 2).toFixed(1);
-            return `<li><button type="button" data-fp="${i}" class="fp-item">
-              <span class="rank">${String(i + 1).padStart(2, "0")}</span>
-              <span class="rank-body">
-                <span class="rank-coord">${cy}\u00b0, ${cx}\u00b0</span>
-                <span class="rank-chip">${sr.shard.path.split("/").pop()}</span>
-              </span>
-              <span class="rank-score">${sr.meanDist.toFixed(1)}</span>
-            </button></li>`;
-          }).join("")}
-        </ul>`;
-
-      e.fingerprintResults.querySelector(".fp-close")?.addEventListener("click", () => {
-        if (e.fingerprintResults) e.fingerprintResults.hidden = true;
-      });
-      e.fingerprintResults.querySelectorAll<HTMLButtonElement>("button[data-fp]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const idx = Number(btn.dataset.fp);
-          const sr = shardResults[idx];
-          const bbox: BBox = { west: sr.shard.xmin, south: sr.shard.ymin, east: sr.shard.xmax, north: sr.shard.ymax };
-          globe.fitBounds(bbox, { padding: 60, maxZoom: 11 });
-        });
-      });
-    }
-
-    setStatus(`Found ${shardResults.length} similar regions.`);
-  } catch (err) {
-    setStatus(`Fingerprint failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
 /* ---------------------------------------------------------- GeoParquet export */
 
 async function exportGeoParquet(): Promise<void> {
@@ -2108,7 +1967,6 @@ function wire(): void {
   e.clearNegativesBtn?.addEventListener("click", clearNegatives);
 
   // Fingerprint
-  e.fingerprintBtn?.addEventListener("click", () => void regionFingerprint());
 
   // Geocoder search
   e.searchInput?.addEventListener("input", (ev) => {
@@ -2233,7 +2091,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     target: "#draw-btn",
     title: "Step 2 — draw a small region",
-    body: "Click <strong>Draw region</strong>, then drag a box on the map — or hold <kbd>Shift</kbd> and drag anywhere. Keep it small (≈15×15 km) so patches load in a few seconds. You can also click any preset in the AOI panel.",
+    body: "Click <strong>Draw region</strong>, then drag a box on the map — or hold <kbd>Shift</kbd> and drag anywhere. You can also click any preset in the AOI panel.",
     placement: "right",
     padding: 12,
   },
@@ -2260,7 +2118,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     title: "You're ready",
-    body: "Add more exemplars, flip <strong>Invert</strong> to search for opposites, adjust the Top-K slider, or hit <strong>Find similar regions</strong> to discover matching landscapes anywhere on Earth.",
+    body: "Add more exemplars, flip <strong>Invert</strong> to search for opposites, adjust the Top-K slider, or export results as GeoParquet for analysis in QGIS, DuckDB, or GeoPandas.",
     placement: "center",
   },
 ];
