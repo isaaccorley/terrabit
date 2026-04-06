@@ -484,6 +484,14 @@ function setStatus(message: string): void {
   updateView();
 }
 
+function syncSliderFill(input: HTMLInputElement): void {
+  const min = Number(input.min);
+  const max = Number(input.max);
+  const val = Number(input.value);
+  const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
+  input.style.setProperty("--v", `${pct}%`);
+}
+
 function updateView(): void {
   const e = els();
   if (!e.status || !e.drawBtn || !e.drawLabel || !e.positiveList || !e.resultList) return;
@@ -499,7 +507,7 @@ function updateView(): void {
   if (e.mPatches) e.mPatches.textContent = state.candidateRows.length ? new Intl.NumberFormat().format(state.candidateRows.length) : "—";
   if (e.mRoi) e.mRoi.textContent = state.bbox ? `${(state.bbox.east - state.bbox.west).toFixed(2)}°×${(state.bbox.north - state.bbox.south).toFixed(2)}°` : "—";
 
-  if (e.topkSlider) e.topkSlider.value = String(state.topK);
+  if (e.topkSlider) { e.topkSlider.value = String(state.topK); syncSliderFill(e.topkSlider); }
   if (e.topkValue) e.topkValue.textContent = String(state.topK);
 
   // View mode tabs
@@ -522,6 +530,7 @@ function updateView(): void {
       if (state.threshold === Infinity) state.threshold = scores[Math.min(state.topK, scores.length) - 1] ?? mx;
       e.thresholdSlider.value = String(state.threshold);
       e.thresholdSlider.step = String(Math.max(0.1, (mx - mn) / 200));
+      syncSliderFill(e.thresholdSlider);
     }
     if (e.thresholdValue) e.thresholdValue.textContent = state.threshold.toFixed(1);
     const below = state.results.filter((r) => r.score <= state.threshold).length;
