@@ -31,10 +31,14 @@ const MANIFEST_URL =
 const DEFAULT_TOP_K = 50;
 const MAX_TOP_K = 100;
 
+type AoiEntry = { id: number; bbox: BBox };
+
 type AppState = {
-  bbox: BBox | null;
+  bboxes: AoiEntry[];
+  nextAoiId: number;
+  regionRows: Map<number, CandidateRow[]>;
+  regionShardCounts: Map<number, number>;
   status: string;
-  manifestShards: ManifestRow[];
   candidateRows: CandidateRow[];
   positivePoints: PositivePoint[];
   negativePoints: NegativePoint[];
@@ -55,9 +59,11 @@ type AppState = {
 };
 
 const state: AppState = {
-  bbox: null,
+  bboxes: [],
+  nextAoiId: 1,
+  regionRows: new Map(),
+  regionShardCounts: new Map(),
   status: "Spin the globe. Zoom. Shift-drag or hit Draw region to define an AOI.",
-  manifestShards: [],
   candidateRows: [],
   positivePoints: [],
   negativePoints: [],
@@ -83,7 +89,11 @@ let scoringWorker: Worker | null = null;
 let scoringWorkerReady = false;
 let scoringRequestId = 0;
 let latestScoreRunId = 0;
-let latestLoadRunId = 0;
+const regionLoadRunIds = new Map<number, number>();
+
+function isInsideAnyAoi(lat: number, lng: number): boolean {
+  return state.bboxes.some((e) => containsPoint(e.bbox, lat, lng));
+}
 
 // List render fingerprints — skip DOM rebuild when data hasn't changed
 let lastPositiveListKey = "";
@@ -150,12 +160,11 @@ function renderShell(): void {
             <span class="btn-glyph">▢</span>
             <span id="draw-label">Draw region</span>
           </button>
-          <button id="clear-region-btn" class="btn btn-sm btn-ghost" type="button">Clear region</button>
-          <button id="zoom-region-btn" class="btn btn-sm btn-ghost" type="button" hidden>
-            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 2H2v4"/><path d="M14 6V2h-4"/><path d="M2 10v4h4"/><path d="M10 14h4v-4"/></svg>
-            Zoom to region
+          <button id="zoom-region-btn" class="icon-btn" type="button" hidden title="Zoom to region(s)">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 2H2v4"/><path d="M14 6V2h-4"/><path d="M2 10v4h4"/><path d="M10 14h4v-4"/></svg>
           </button>
         </div>
+        <div id="active-regions" class="active-regions"></div>
         <div class="meta-row">
           <div class="meta-cell">
             <dt>Shards</dt>
@@ -347,8 +356,8 @@ function els() {
     statusPill: document.querySelector<HTMLElement>("#status-pill"),
     drawBtn: document.querySelector<HTMLButtonElement>("#draw-btn"),
     drawLabel: document.querySelector<HTMLElement>("#draw-label"),
-    clearRegionBtn: document.querySelector<HTMLButtonElement>("#clear-region-btn"),
     zoomRegionBtn: document.querySelector<HTMLButtonElement>("#zoom-region-btn"),
+    activeRegions: document.querySelector<HTMLDivElement>("#active-regions"),
     mShards: document.querySelector<HTMLElement>("#m-shards"),
     mPatches: document.querySelector<HTMLElement>("#m-patches"),
     mRoi: document.querySelector<HTMLElement>("#m-roi"),
@@ -676,10 +685,48 @@ function updateView(): void {
   e.drawLabel.textContent = armed ? "Drawing…" : "Draw region";
   e.drawBtn.classList.toggle("is-armed", armed);
 
-  if (e.mShards) e.mShards.textContent = state.manifestShards.length ? String(state.manifestShards.length) : "—";
+  const totalShards = [...state.regionShardCounts.values()].reduce((a, b) => a + b, 0);
+  if (e.mShards) e.mShards.textContent = totalShards ? String(totalShards) : "—";
   if (e.mPatches) e.mPatches.textContent = state.candidateRows.length ? new Intl.NumberFormat().format(state.candidateRows.length) : "—";
-  if (e.mRoi) e.mRoi.textContent = state.bbox ? `${(state.bbox.east - state.bbox.west).toFixed(2)}°×${(state.bbox.north - state.bbox.south).toFixed(2)}°` : "—";
-  if (e.zoomRegionBtn) e.zoomRegionBtn.hidden = !state.bbox;
+  if (e.mRoi) {
+    if (!state.bboxes.length) e.mRoi.textContent = "—";
+    else if (state.bboxes.length === 1) {
+      const b = state.bboxes[0].bbox;
+      e.mRoi.textContent = `${(b.east - b.west).toFixed(2)}°×${(b.north - b.south).toFixed(2)}°`;
+    } else {
+      e.mRoi.textContent = `${state.bboxes.length} regions`;
+    }
+  }
+  if (e.zoomRegionBtn) e.zoomRegionBtn.hidden = state.bboxes.length === 0;
+
+  // Active-regions chips
+  if (e.activeRegions) {
+    const regKey = state.bboxes.map((a) => a.id).join(",");
+    if (e.activeRegions.dataset.key !== regKey) {
+      e.activeRegions.dataset.key = regKey;
+      e.activeRegions.innerHTML = "";
+      if (state.bboxes.length) {
+        for (const entry of state.bboxes) {
+          const chip = document.createElement("div");
+          chip.className = "aoi-chip";
+          chip.innerHTML = `<span class="aoi-chip-label">AOI ${entry.id}</span><button class="aoi-chip-remove" data-aoi-id="${entry.id}" title="Remove region" aria-label="Remove AOI ${entry.id}">×</button>`;
+          e.activeRegions.appendChild(chip);
+        }
+        const clearAll = document.createElement("button");
+        clearAll.className = "clear-all-btn";
+        clearAll.id = "clear-all-regions-btn";
+        clearAll.textContent = "Clear all";
+        e.activeRegions.appendChild(clearAll);
+        e.activeRegions.querySelectorAll<HTMLButtonElement>(".aoi-chip-remove").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const id = Number(btn.dataset.aoiId);
+            removeRegion(id);
+          });
+        });
+        document.getElementById("clear-all-regions-btn")?.addEventListener("click", clearAllRegions);
+      }
+    }
+  }
 
   if (e.topkSlider) { e.topkSlider.value = String(state.topK); syncSliderFill(e.topkSlider); }
   if (e.topkValue) e.topkValue.textContent = String(state.topK);
@@ -718,7 +765,7 @@ function updateView(): void {
   if (e.exemplarCount) e.exemplarCount.textContent = String(state.positivePoints.length);
   if (e.clearPointsBtn) e.clearPointsBtn.hidden = state.positivePoints.length === 0;
   if (e.exportBtn) e.exportBtn.hidden = state.results.length === 0;
-  if (e.fingerprintBtn) e.fingerprintBtn.hidden = !(state.bbox && state.positivePoints.length > 0 && state.candidateRows.length > 0);
+  if (e.fingerprintBtn) e.fingerprintBtn.hidden = !(state.bboxes.length > 0 && state.positivePoints.length > 0 && state.candidateRows.length > 0);
   e.overlayToggle?.classList.toggle("is-on", state.overlayVisible);
   e.invertToggle?.classList.toggle("is-on", state.invertSearch);
   if (e.combineSelect) {
@@ -1110,7 +1157,7 @@ async function scoreCandidates(): Promise<void> {
   const runId = ++latestScoreRunId;
 
   // If the region is still downloading, defer scoring. The points are preserved
-  // in state.positivePoints and loadRegion() will call scoreCandidates() again
+  // in state.positivePoints and addRegion() will call scoreCandidates() again
   // once the last shard lands and the scoring worker is ready.
   if (state.loading || !scoringWorkerReady) {
     if (state.positivePoints.length) {
@@ -1346,7 +1393,12 @@ async function regionFingerprint(): Promise<void> {
     const allShards = allManifest.toArray() as ManifestRow[];
     await conn.close();
 
-    const currentPaths = new Set(state.manifestShards.map((s) => s.path));
+    // Exclude shards that spatially overlap any active AOI
+    const currentPaths = new Set(allShards.filter((s) =>
+      state.bboxes.some((entry) =>
+        !(s.xmax < entry.bbox.west || s.xmin > entry.bbox.east || s.ymax < entry.bbox.south || s.ymin > entry.bbox.north)
+      )
+    ).map((s) => s.path));
     const candidates = allShards.filter((s) => !currentPaths.has(s.path));
     // Shuffle and take 20
     for (let i = candidates.length - 1; i > 0; i--) {
@@ -1491,15 +1543,16 @@ async function exportGeoParquet(): Promise<void> {
 
 /* ---------------------------------------------------------- App actions */
 
-async function loadRegion(bbox: BBox): Promise<void> {
-  const runId = ++latestLoadRunId;
-  // Clear old state IMMEDIATELY so the user never sees stale data when redrawing.
-  // Preserve external exemplars (those with their own embedding) across region changes.
-  state.bbox = bbox;
-  const externalExemplars = state.positivePoints.filter((p) => p.embedding);
-  state.positivePoints = externalExemplars.map((p, i) => ({ ...p, id: i + 1 }));
-  state.negativePoints = [];
-  state.positiveMatches = [];
+async function addRegion(bbox: BBox): Promise<void> {
+  const id = state.nextAoiId++;
+  const runId = 1;
+  regionLoadRunIds.set(id, runId);
+
+  state.bboxes.push({ id, bbox });
+  state.regionRows.set(id, []);
+  state.regionShardCounts.set(id, 0);
+  state.loading = true;
+  // Clear derived results so stale overlay doesn't linger
   state.results = [];
   state.outlierResults = [];
   state.outlierComputed = false;
@@ -1507,15 +1560,12 @@ async function loadRegion(bbox: BBox): Promise<void> {
   state.surpriseComputed = false;
   state.gradientResults = [];
   state.threshold = Infinity;
-  state.candidateRows = [];
-  state.manifestShards = [];
-  state.loading = true;
-  globe.setAoi(bbox);
-  globe.setPositives(state.positivePoints);
-  globe.setNegatives(state.negativePoints);
+  state.positiveMatches = [];
+  globe.setAois(state.bboxes.map((e) => e.bbox));
   globe.setPositiveMatches([]);
   globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
+  globe.fitBounds(bbox, { padding: 60 });
   setStatus("Fetching intersecting shards\u2026");
   updateView();
 
@@ -1525,9 +1575,9 @@ async function loadRegion(bbox: BBox): Promise<void> {
     const manifestResult = await conn.query(buildManifestQuery(bbox));
     const shards = manifestResult.toArray() as ManifestRow[];
     await conn.close();
-    if (runId !== latestLoadRunId) return;
+    if (regionLoadRunIds.get(id) !== runId) return;
 
-    state.manifestShards = shards;
+    state.regionShardCounts.set(id, shards.length);
     updateView();
     if (!shards.length) {
       state.loading = false;
@@ -1535,51 +1585,73 @@ async function loadRegion(bbox: BBox): Promise<void> {
       return;
     }
 
-    setStatus(`Loading patches from ${shards.length} shard(s)…`);
-    globe.fitBounds(bbox, { padding: 60 });
+    setStatus(`Loading patches from ${shards.length} shard(s) for AOI ${id}…`);
 
-    // Query each shard in parallel with bounded concurrency. This is much more
-    // reliable than a single read_parquet([url1, url2, ...]) call — one slow or
-    // flaky shard used to stall / truncate the whole batch.
+    // Query each shard in parallel with bounded concurrency.
     let completed = 0;
     const shardUrls = shards.map((s) => resolveShardUrl(s.path));
-    const all: CandidateRow[] = [];
+    const regionAll: CandidateRow[] = [];
     const settled = await mapWithConcurrency(shardUrls, 8, async (url) => {
       const rows = await fetchShardCandidates(db, url, bbox);
-      if (runId !== latestLoadRunId) return rows;
-      all.push(...rows);
+      if (regionLoadRunIds.get(id) !== runId) return rows;
+      regionAll.push(...rows);
+      state.regionRows.get(id)!.push(...rows);
+      state.candidateRows = [...state.regionRows.values()].flat();
       completed += 1;
-      // Live progress update
-      state.candidateRows = all;
-      setStatus(`Loading patches — ${completed}/${shards.length} shards · ${new Intl.NumberFormat().format(all.length)} patches`);
+      setStatus(`AOI ${id} — ${completed}/${shards.length} shards · ${new Intl.NumberFormat().format(state.candidateRows.length)} total patches`);
       return rows;
     });
-    if (runId !== latestLoadRunId) return;
+    if (regionLoadRunIds.get(id) !== runId) return;
 
     const failed = settled.filter((r) => r.status === "rejected");
-    if (failed.length) {
-      console.warn("Shard fetch failures:", failed);
-    }
+    if (failed.length) console.warn(`AOI ${id} shard fetch failures:`, failed);
 
-    state.candidateRows = all;
+    state.regionRows.set(id, regionAll);
+    state.candidateRows = [...state.regionRows.values()].flat();
     initScoringWorker(state.candidateRows);
     state.loading = false;
-    const base = state.candidateRows.length
-      ? `Region loaded — ${new Intl.NumberFormat().format(state.candidateRows.length)} patches from ${shards.length - failed.length}/${shards.length} shards. Click anywhere to seed an exemplar.`
-      : "Region loaded, but no patches returned.";
+    const totalPatches = new Intl.NumberFormat().format(state.candidateRows.length);
+    const base = regionAll.length
+      ? `AOI ${id} loaded — ${totalPatches} total patches. Click anywhere to seed an exemplar.`
+      : `AOI ${id} loaded, but no patches returned.`;
     setStatus(failed.length ? `${base} (${failed.length} shard(s) failed)` : base);
     updateView();
 
-    // If the user clicked exemplar points while shards were still streaming,
-    // they were queued — run the scoring pass now that everything is ready.
     if (state.positivePoints.length && state.candidateRows.length) {
       void scoreCandidates();
     }
   } catch (err) {
-    if (runId !== latestLoadRunId) return;
+    if (regionLoadRunIds.get(id) !== runId) return;
     state.loading = false;
     setStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+function removeRegion(id: number): void {
+  lastPositiveListKey = "";
+  lastNegativeListKey = "";
+  lastResultListKey = "";
+  state.bboxes = state.bboxes.filter((e) => e.id !== id);
+  state.regionRows.delete(id);
+  state.regionShardCounts.delete(id);
+  regionLoadRunIds.delete(id);
+  state.candidateRows = [...state.regionRows.values()].flat();
+  state.results = [];
+  state.outlierResults = [];
+  state.outlierComputed = false;
+  state.surpriseResults = [];
+  state.surpriseComputed = false;
+  state.gradientResults = [];
+  state.positiveMatches = [];
+  globe.setAois(state.bboxes.map((e) => e.bbox));
+  globe.setPositiveMatches([]);
+  globe.setResults([], state.topK, state.viewMode);
+  if (state.candidateRows.length) {
+    initScoringWorker(state.candidateRows);
+    if (state.positivePoints.length) void scoreCandidates();
+  }
+  setStatus(state.bboxes.length ? "Region removed. Remaining regions active." : "Cleared. Shift-drag to define a new region.");
+  updateView();
 }
 
 function pickZoomForBBox(bbox: BBox): number {
@@ -1659,7 +1731,7 @@ async function fetchExternalEmbedding(lat: number, lng: number): Promise<Candida
 }
 
 function addPositive(lat: number, lng: number): void {
-  const insideBbox = state.bbox !== null && containsPoint(state.bbox, lat, lng);
+  const insideBbox = isInsideAnyAoi(lat, lng);
   const candidatesReady = state.candidateRows.length > 0;
 
   if (insideBbox && candidatesReady) {
@@ -1711,7 +1783,7 @@ function addPositive(lat: number, lng: number): void {
 }
 
 function addNegative(lat: number, lng: number): void {
-  const insideBbox = state.bbox !== null && containsPoint(state.bbox, lat, lng);
+  const insideBbox = isInsideAnyAoi(lat, lng);
   const candidatesReady = state.candidateRows.length > 0;
 
   if (insideBbox && candidatesReady) {
@@ -1787,12 +1859,15 @@ function clearPoints(): void {
   updateView();
 }
 
-function clearRegion(): void {
+function clearAllRegions(): void {
   lastPositiveListKey = "";
   lastNegativeListKey = "";
   lastResultListKey = "";
-  state.bbox = null;
-  state.manifestShards = [];
+  state.bboxes = [];
+  state.nextAoiId = 1;
+  state.regionRows = new Map();
+  state.regionShardCounts = new Map();
+  regionLoadRunIds.clear();
   state.candidateRows = [];
   state.positivePoints = [];
   state.negativePoints = [];
@@ -1808,13 +1883,14 @@ function clearRegion(): void {
   state.threshold = Infinity;
   state.invertSearch = false;
   state.combineMethod = "mean";
-  globe.setAoi(null);
+  globe.setAois([]);
   globe.setPositives([]);
   globe.setNegatives([]);
   globe.setPositiveMatches([]);
   globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
   setStatus("Cleared. Shift-drag to define a new region.");
+  updateView();
 }
 
 /* --------------------------------------------------------------- Bootstrap */
@@ -1825,8 +1901,16 @@ function wire(): void {
     globe.armDraw(!globe.isArmed());
     setStatus(globe.isArmed() ? "Draw armed — drag on the globe to define a region." : "Draw disarmed.");
   });
-  e.clearRegionBtn?.addEventListener("click", clearRegion);
-  e.zoomRegionBtn?.addEventListener("click", () => { if (state.bbox) globe.fitBounds(state.bbox, { padding: 60 }); });
+  e.zoomRegionBtn?.addEventListener("click", () => {
+    if (!state.bboxes.length) return;
+    const union: BBox = {
+      west: Math.min(...state.bboxes.map((e) => e.bbox.west)),
+      south: Math.min(...state.bboxes.map((e) => e.bbox.south)),
+      east: Math.max(...state.bboxes.map((e) => e.bbox.east)),
+      north: Math.max(...state.bboxes.map((e) => e.bbox.north)),
+    };
+    globe.fitBounds(union, { padding: 60 });
+  });
   e.clearPointsBtn?.addEventListener("click", clearPoints);
   e.exportBtn?.addEventListener("click", () => void exportGeoParquet());
   e.overlayToggle?.addEventListener("click", () => {
@@ -1986,7 +2070,7 @@ function wire(): void {
       setStatus("Draw disarmed.");
       return;
     }
-    if (state.bbox) clearRegion();
+    if (state.bboxes.length) clearAllRegions();
   });
 }
 
@@ -1996,7 +2080,7 @@ function bootstrap(): void {
   if (!mapEl) throw new Error("#map missing");
   globe = new GlobeMap(mapEl, {
     onDrawComplete: (bbox) => {
-      void loadRegion(bbox);
+      void addRegion(bbox);
     },
     onAoiClick: (lat, lng) => addPositive(lat, lng),
     onNegativeClick: (lat, lng) => addNegative(lat, lng),
@@ -2005,7 +2089,7 @@ function bootstrap(): void {
       const c = centroid(row.bbox);
       addPositive(c.lat, c.lng);
     },
-    getBBox: () => state.bbox,
+    getBBox: () => state.bboxes[state.bboxes.length - 1]?.bbox ?? null,
     getResults: () => state.results,
     getTopK: () => state.topK,
   });

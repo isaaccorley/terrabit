@@ -55,7 +55,7 @@ export class GlobeMap {
     this.map = new maplibregl.Map({
       container,
       style: this.buildStyle(),
-      center: [8, 22],
+      center: [-95, 38],
       zoom: 1.8,
       minZoom: 0.5,
       maxZoom: 14,
@@ -286,7 +286,7 @@ export class GlobeMap {
   }
 
   private easeIntro(): void {
-    this.map.easeTo({ center: [8, 22], zoom: 2.2, duration: 2600, essential: true });
+    this.map.easeTo({ center: [-95, 38], zoom: 2.2, duration: 2600, essential: true });
   }
 
   private whenReady(fn: () => void): void {
@@ -294,12 +294,12 @@ export class GlobeMap {
     else this.pendingRender.push(fn);
   }
 
-  setAoi(bbox: BBox | null): void {
+  setAois(bboxes: BBox[]): void {
     this.whenReady(() => {
       const src = this.map.getSource("aoi") as maplibregl.GeoJSONSource;
       src?.setData({
         type: "FeatureCollection",
-        features: bbox ? [bboxToPolygon(bbox)] : [],
+        features: bboxes.map((b) => bboxToPolygon(b)),
       });
     });
   }

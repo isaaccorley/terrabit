@@ -231,8 +231,8 @@ button { cursor: pointer; border: 0; background: none; }
 .brand-text p {
   margin: 2px 0 0;
   font-family: "JetBrains Mono", monospace;
-  font-size: 9px;
-  letter-spacing: 0.1em;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text);
 }
@@ -707,9 +707,65 @@ button { cursor: pointer; border: 0; background: none; }
 
 .draw-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 6px;
 }
+
+.active-regions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.aoi-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 8px;
+  background: rgba(229, 168, 83, 0.12);
+  border: 1px solid rgba(229, 168, 83, 0.35);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #e5a853;
+}
+
+.aoi-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: #e5a853;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  transition: opacity 150ms;
+}
+
+.aoi-chip-remove:hover { opacity: 1; }
+
+.clear-all-btn {
+  background: none;
+  border: none;
+  padding: 3px 4px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 150ms;
+  letter-spacing: 0.01em;
+}
+
+.clear-all-btn:hover { opacity: 1; color: var(--text); }
 
 .btn {
   display: inline-flex;
