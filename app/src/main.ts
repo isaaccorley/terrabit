@@ -1711,22 +1711,53 @@ function addPositive(lat: number, lng: number): void {
 }
 
 function addNegative(lat: number, lng: number): void {
-  if (!state.bbox || !state.candidateRows.length) return;
-  const isInsideAoi = containsPoint(state.bbox, lat, lng);
-  if (!isInsideAoi) return;
+  const insideBbox = state.bbox !== null && containsPoint(state.bbox, lat, lng);
+  const candidatesReady = state.candidateRows.length > 0;
 
-  const patch = findNearestCandidate(lat, lng);
-  if (patch) {
-    const existing = state.negativePoints.some((p) => {
-      const ep = findNearestCandidate(p.lat, p.lng);
-      return ep && ep.chips_id === patch.chips_id;
+  if (insideBbox && candidatesReady) {
+    const patch = findNearestCandidate(lat, lng);
+    if (patch) {
+      const existing = state.negativePoints.some((p) => {
+        const ep = findNearestCandidate(p.lat, p.lng);
+        return ep && ep.chips_id === patch.chips_id;
+      });
+      if (existing) return;
+    }
+    state.negativePoints.push({ id: state.negativePoints.length + 1, lat, lng });
+    globe.setNegatives(state.negativePoints);
+    void scoreCandidates();
+    updateView();
+  } else if (insideBbox) {
+    // Still loading — queue and draw immediately
+    state.negativePoints.push({ id: state.negativePoints.length + 1, lat, lng });
+    globe.setNegatives(state.negativePoints);
+    void scoreCandidates();
+    updateView();
+  } else {
+    // Outside AOI — fetch embedding externally
+    setStatus("Fetching external negative embedding…");
+    updateView();
+    void fetchExternalEmbedding(lat, lng).then((row) => {
+      if (!row) {
+        setStatus("No patch found at that location.");
+        return;
+      }
+      const existing = state.negativePoints.some((p) => p.embedding && p.chips_id === row.chips_id);
+      if (existing) {
+        setStatus("That patch is already a negative.");
+        return;
+      }
+      state.negativePoints.push({
+        id: state.negativePoints.length + 1,
+        lat, lng,
+        embedding: row.embedding,
+        chips_id: row.chips_id,
+      });
+      globe.setNegatives(state.negativePoints);
+      void scoreCandidates();
+      updateView();
     });
-    if (existing) return;
   }
-  state.negativePoints.push({ id: state.negativePoints.length + 1, lat, lng });
-  globe.setNegatives(state.negativePoints);
-  void scoreCandidates();
-  updateView();
 }
 
 function clearNegatives(): void {
