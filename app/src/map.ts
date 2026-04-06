@@ -1,4 +1,6 @@
-import maplibregl from "maplibre-gl";
+// The minified MapLibre bundle broke GeoJSON rendering in our static prod build.
+// Use the dev bundle until upstream bundling/minification is safe here again.
+import maplibregl from "maplibre-gl/dist/maplibre-gl-dev.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import type {
