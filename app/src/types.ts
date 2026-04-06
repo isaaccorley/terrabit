@@ -52,3 +52,11 @@ export type NegativePoint = {
 export type ViewMode = "topk" | "heatmap" | "outlier" | "threshold" | "surprise" | "gradient";
 
 export type CombineMethod = "mean" | "and" | "or" | "xor";
+
+export type AoiEntry = {
+  id: number;
+  bbox: BBox;
+  /** Closed polygon ring [lng, lat][] including the repeated closing vertex.
+   *  Present when drawn in polygon mode; absent for rectangle/preset draws. */
+  polygon?: [number, number][];
+};
