@@ -286,6 +286,7 @@ function els() {
 type AoiPreset = { name: string; tag: string; bbox: BBox };
 
 const AOI_PRESETS: AoiPreset[] = [
+  { name: "Malé Atoll", tag: "coral atoll", bbox: { west: 73.35, south: 4.05, east: 73.7, north: 4.35 } },
   { name: "Center pivots", tag: "agriculture", bbox: { west: 37.2, south: 29.0, east: 39.0, north: 30.2 } },
   { name: "Palm Islands", tag: "coastal eng.", bbox: { west: 54.95, south: 25.05, east: 55.25, north: 25.2 } },
   { name: "Bhadla Solar", tag: "solar farm", bbox: { west: 71.6, south: 27.3, east: 72.1, north: 27.65 } },
@@ -297,7 +298,6 @@ const AOI_PRESETS: AoiPreset[] = [
   { name: "Venice Lagoon", tag: "lagoon", bbox: { west: 12.15, south: 45.3, east: 12.55, north: 45.55 } },
   { name: "Vatnajökull", tag: "glacier", bbox: { west: -17.2, south: 64.1, east: -16.2, north: 64.6 } },
   { name: "Ganges Delta", tag: "river delta", bbox: { west: 89.0, south: 21.6, east: 90.0, north: 22.4 } },
-  { name: "Malé Atoll", tag: "coral atoll", bbox: { west: 73.35, south: 4.05, east: 73.7, north: 4.35 } },
   { name: "Yellowstone", tag: "caldera", bbox: { west: -111.0, south: 44.3, east: -110.0, north: 44.85 } },
   { name: "Mekong Delta", tag: "rice paddy", bbox: { west: 105.6, south: 9.7, east: 106.4, north: 10.3 } },
   { name: "Horns Rev", tag: "wind farm", bbox: { west: 7.5, south: 55.4, east: 8.2, north: 55.8 } },
