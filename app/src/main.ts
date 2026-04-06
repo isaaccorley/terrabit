@@ -181,11 +181,7 @@ function renderShell(): void {
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="2" width="4" height="4"/><rect x="6" y="2" width="4" height="4"/><rect x="10" y="2" width="4" height="4"/><rect x="2" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="10" y="6" width="4" height="4"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/></svg>
                 <span class="view-label">Heat</span>
               </button>
-              <button data-view="contour" class="view-tab" type="button" role="tab" title="Contour" aria-label="Smooth density surface">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12c2-4 4-6 6-7s4 0 6 3"/><path d="M2 10c2-3 4-4 6-5s4 0 6 2" opacity=".5"/></svg>
-                <span class="view-label">Contour</span>
-              </button>
-              <button data-view="outlier" class="view-tab" type="button" role="tab" title="Outlier" aria-label="Most unique patches">
+<button data-view="outlier" class="view-tab" type="button" role="tab" title="Outlier" aria-label="Most unique patches">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="2"/><circle cx="4" cy="6" r="1.2"/><circle cx="12" cy="5" r="1.2"/><circle cx="13" cy="11" r="1.2"/><circle cx="3" cy="12" r="1.2"/></svg>
                 <span class="view-label">Outlier</span>
               </button>
@@ -515,7 +511,7 @@ function updateView(): void {
     tab.classList.toggle("is-active", tab.dataset.view === state.viewMode);
   });
   if (e.topkControl) e.topkControl.hidden = state.viewMode !== "topk";
-  if (e.heatmapLegend) e.heatmapLegend.hidden = state.viewMode !== "heatmap" && state.viewMode !== "contour";
+  if (e.heatmapLegend) e.heatmapLegend.hidden = state.viewMode !== "heatmap";
   if (e.outlierLegend) e.outlierLegend.hidden = state.viewMode !== "outlier";
   if (e.thresholdControl) e.thresholdControl.hidden = state.viewMode !== "threshold";
 
@@ -579,7 +575,7 @@ function updateView(): void {
     ? activeResults.slice(0, state.topK)
     : state.viewMode === "threshold"
       ? activeResults.filter((r) => r.score <= state.threshold)
-      : activeResults.slice(0, state.topK); // list shows topK even in heatmap/contour/outlier
+      : activeResults.slice(0, state.topK); // list shows topK even in heatmap/outlier
 
   if (e.resultCount) {
     const needsExemplars = state.viewMode !== "outlier";

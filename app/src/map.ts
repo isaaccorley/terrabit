@@ -146,7 +146,7 @@ export class GlobeMap {
 
   private addSources(): void {
     const empty = { type: "FeatureCollection", features: [] } as const;
-    for (const id of ["aoi", "positives", "positive-matches", "results", "contour", "preview", "draft"]) {
+    for (const id of ["aoi", "positives", "positive-matches", "results", "preview", "draft"]) {
       this.map.addSource(id, { type: "geojson", data: empty as any });
     }
   }
@@ -186,43 +186,6 @@ export class GlobeMap {
       source: "draft",
       paint: { "line-color": "#e5a853", "line-width": 1.6 },
     });
-
-    // Contour (MapLibre native heatmap layer — smooth gaussian interpolation)
-    this.map.addLayer({
-      id: "contour-heat",
-      type: "heatmap",
-      source: "contour",
-      layout: { visibility: "none" },
-      paint: {
-        "heatmap-weight": ["coalesce", ["get", "weight"], 0.5],
-        "heatmap-intensity": [
-          "interpolate", ["linear"], ["zoom"],
-          4, 0.4,
-          8, 0.8,
-          12, 1.2,
-          14, 1.6,
-        ],
-        "heatmap-radius": [
-          "interpolate", ["linear"], ["zoom"],
-          4, 30,
-          8, 60,
-          10, 80,
-          12, 120,
-          14, 180,
-        ],
-        "heatmap-opacity": 0.55,
-        "heatmap-color": [
-          "interpolate", ["linear"], ["heatmap-density"],
-          0, "rgba(13, 8, 135, 0)",
-          0.1, "rgba(13, 8, 135, 0.25)",
-          0.25, "rgba(126, 3, 167, 0.5)",
-          0.45, "rgba(204, 71, 120, 0.65)",
-          0.65, "rgba(248, 149, 64, 0.75)",
-          0.85, "rgba(240, 249, 33, 0.85)",
-          1, "rgba(240, 249, 33, 1)",
-        ],
-      },
-    } as any);
 
     // Ranked results
     this.map.addLayer({
@@ -349,43 +312,6 @@ export class GlobeMap {
 
   setResults(results: RankedRow[], topK: number, viewMode: ViewMode): void {
     this.whenReady(() => {
-      const isContour = viewMode === "contour";
-
-      // Toggle contour heatmap layer
-      if (this.map.getLayer("contour-heat")) {
-        this.map.setLayoutProperty("contour-heat", "visibility", isContour ? "visible" : "none");
-      }
-
-      if (isContour) {
-        // Set contour point source (centroids with weights)
-        const n = results.length;
-        const features: GeoJSON.Feature[] = results.map((r, i) => {
-          const c = centroid(r.bbox);
-          const weight = n > 1 ? 1 - i / (n - 1) : 1;
-          return {
-            type: "Feature",
-            geometry: { type: "Point", coordinates: [c.lng, c.lat] },
-            properties: { weight },
-          };
-        });
-        (this.map.getSource("contour") as maplibregl.GeoJSONSource)?.setData({
-          type: "FeatureCollection",
-          features,
-        });
-        // Clear tile layers
-        (this.map.getSource("results") as maplibregl.GeoJSONSource)?.setData({
-          type: "FeatureCollection",
-          features: [],
-        });
-        return;
-      }
-
-      // Clear contour data
-      (this.map.getSource("contour") as maplibregl.GeoJSONSource)?.setData({
-        type: "FeatureCollection",
-        features: [],
-      });
-
       // Tile-based views
       const useColor = viewMode !== "topk";
       const list = viewMode === "topk" ? results.slice(0, topK) : results;

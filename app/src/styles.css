@@ -848,7 +848,7 @@ button { cursor: pointer; border: 0; background: none; }
 
 .view-toggle {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 3px;
   padding: 3px;
   border: 1px solid var(--line);

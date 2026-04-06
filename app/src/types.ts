@@ -37,4 +37,4 @@ export type RankedRow = CandidateRow & {
   score: number;
 };
 
-export type ViewMode = "topk" | "heatmap" | "contour" | "outlier" | "threshold";
+export type ViewMode = "topk" | "heatmap" | "outlier" | "threshold";
