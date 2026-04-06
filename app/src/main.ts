@@ -2041,8 +2041,16 @@ function clearAllRegions(): void {
 function wire(): void {
   const e = els();
   e.drawBtn?.addEventListener("click", () => {
-    globe.armDraw(!globe.isArmed());
-    setStatus(globe.isArmed() ? "Draw armed — drag on the globe to define a region." : "Draw disarmed.");
+    const wasArmed = globe.isArmed() && globe.getDrawMode() === "rect";
+    globe.armDraw(!wasArmed, "rect");
+    setStatus(!wasArmed ? "Draw armed — drag on the globe to define a region." : "Draw disarmed.");
+    updateView();
+  });
+  e.drawPolyBtn?.addEventListener("click", () => {
+    const wasArmed = globe.isArmed() && globe.getDrawMode() === "polygon";
+    globe.armDraw(!wasArmed, "polygon");
+    setStatus(!wasArmed ? "Polygon draw armed — click to add vertices, double-click to close." : "Draw disarmed.");
+    updateView();
   });
   e.zoomRegionBtn?.addEventListener("click", () => {
     if (!state.bboxes.length) return;
@@ -2415,7 +2423,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
         for (const mode of modes) {
           if (!tutorialState.active || tutorialState.step !== stepAtEnter) return;
           tutSetViewMode(mode);
-          await tutSimDelay(2200);
+          await tutSimDelay(1100);
         }
         if (!tutorialState.active || tutorialState.step !== stepAtEnter) return;
         void cycle();
