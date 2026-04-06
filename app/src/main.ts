@@ -7,6 +7,7 @@ import duckdbWorkerMvp from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.
 import "./styles.css";
 import { GlobeMap } from "./map";
 import type {
+  AoiEntry,
   BBox,
   CandidateRow,
   CombineMethod,
@@ -24,14 +25,13 @@ import {
   formatLatLng,
   normalizeBBox,
   normalizeEmbedding,
+  pointInPolygon,
 } from "./util";
 
 const MANIFEST_URL =
   "https://data.source.coop/geospatialml/terrabit/clay-v1_5-binary-sentinel-2/manifest.parquet";
 const DEFAULT_TOP_K = 50;
 const MAX_TOP_K = 100;
-
-type AoiEntry = { id: number; bbox: BBox };
 
 type AppState = {
   bboxes: AoiEntry[];
@@ -105,7 +105,9 @@ function resetComputeState(): void {
 }
 
 function isInsideAnyAoi(lat: number, lng: number): boolean {
-  return state.bboxes.some((e) => containsPoint(e.bbox, lat, lng));
+  return state.bboxes.some((e) =>
+    e.polygon ? pointInPolygon(e.polygon, lat, lng) : containsPoint(e.bbox, lat, lng)
+  );
 }
 
 // List render fingerprints — skip DOM rebuild when data hasn't changed
@@ -172,6 +174,10 @@ function renderShell(): void {
           <button id="draw-btn" class="btn btn-sm btn-primary" type="button">
             <span class="btn-glyph">▢</span>
             <span id="draw-label">Draw region</span>
+          </button>
+          <button id="draw-poly-btn" class="btn btn-sm btn-ghost" type="button" title="Draw polygon region — click to add vertices, double-click to close">
+            <span class="btn-glyph">⬡</span>
+            <span>Polygon</span>
           </button>
           <button id="zoom-region-btn" class="icon-btn" type="button" hidden title="Zoom to region(s)">
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 2H2v4"/><path d="M14 6V2h-4"/><path d="M2 10v4h4"/><path d="M10 14h4v-4"/></svg>
@@ -364,6 +370,7 @@ function els() {
     statusPill: document.querySelector<HTMLElement>("#status-pill"),
     drawBtn: document.querySelector<HTMLButtonElement>("#draw-btn"),
     drawLabel: document.querySelector<HTMLElement>("#draw-label"),
+    drawPolyBtn: document.querySelector<HTMLButtonElement>("#draw-poly-btn"),
     zoomRegionBtn: document.querySelector<HTMLButtonElement>("#zoom-region-btn"),
     activeRegions: document.querySelector<HTMLDivElement>("#active-regions"),
     mShards: document.querySelector<HTMLElement>("#m-shards"),
@@ -688,8 +695,11 @@ function updateView(): void {
   e.statusPill?.classList.toggle("is-busy", state.loading);
 
   const armed = globe?.isArmed() ?? false;
-  e.drawLabel.textContent = armed ? "Drawing…" : "Draw region";
-  e.drawBtn.classList.toggle("is-armed", armed);
+  const polyArmed = armed && globe?.getDrawMode() === "polygon";
+  const rectArmed = armed && !polyArmed;
+  e.drawLabel.textContent = rectArmed ? "Drawing…" : "Draw region";
+  e.drawBtn.classList.toggle("is-armed", rectArmed);
+  e.drawPolyBtn?.classList.toggle("is-armed", polyArmed);
 
   const totalShards = [...state.regionShardCounts.values()].reduce((a, b) => a + b, 0);
   if (e.mShards) e.mShards.textContent = totalShards ? String(totalShards) : "—";
@@ -934,22 +944,36 @@ function resolveShardUrl(relativePath: string): string {
   }
 }
 
-function buildManifestQuery(bbox: BBox): string {
+function bboxToWKT(b: BBox): string {
+  return `POLYGON((${b.west} ${b.south},${b.east} ${b.south},${b.east} ${b.north},${b.west} ${b.north},${b.west} ${b.south}))`;
+}
+
+function ringToWKT(ring: [number, number][]): string {
+  return `POLYGON((${ring.map(([lng, lat]) => `${lng} ${lat}`).join(",")}))`;
+}
+
+function buildManifestQuery(bbox: BBox, polygon?: [number, number][]): string {
+  const wkt = polygon ? ringToWKT(polygon) : bboxToWKT(bbox);
   return `
     SELECT path, rows, xmin, ymin, xmax, ymax, year
     FROM read_parquet(${sqlString(MANIFEST_URL)})
-    WHERE xmax >= ${bbox.west} AND xmin <= ${bbox.east}
-      AND ymax >= ${bbox.south} AND ymin <= ${bbox.north}
+    WHERE ST_Intersects(
+      ST_GeomFromText('${wkt}'),
+      ST_MakeEnvelope(xmin, ymin, xmax, ymax)
+    )
     ORDER BY rows DESC, path ASC
   `.trim();
 }
 
-function buildShardQuery(shardUrl: string, bbox: BBox): string {
+function buildShardQuery(shardUrl: string, bbox: BBox, polygon?: [number, number][]): string {
+  const wkt = polygon ? ringToWKT(polygon) : bboxToWKT(bbox);
   return `
     SELECT chips_id, bbox, embedding
     FROM read_parquet(${sqlString(shardUrl)})
-    WHERE bbox.xmax >= ${bbox.west} AND bbox.xmin <= ${bbox.east}
-      AND bbox.ymax >= ${bbox.south} AND bbox.ymin <= ${bbox.north}
+    WHERE ST_Intersects(
+      ST_GeomFromText('${wkt}'),
+      ST_MakeEnvelope(bbox.xmin, bbox.ymin, bbox.xmax, bbox.ymax)
+    )
   `.trim();
 }
 
@@ -957,10 +981,11 @@ async function fetchShardCandidates(
   db: duckdb.AsyncDuckDB,
   shardUrl: string,
   bbox: BBox,
+  polygon?: [number, number][],
 ): Promise<CandidateRow[]> {
   const conn = await db.connect();
   try {
-    const result = await conn.query(buildShardQuery(shardUrl, bbox));
+    const result = await conn.query(buildShardQuery(shardUrl, bbox, polygon));
     const rows = result.toArray() as Array<{
       chips_id: string;
       bbox: { xmin: number; ymin: number; xmax: number; ymax: number };
@@ -1007,7 +1032,7 @@ async function instantiateDuckDB(): Promise<duckdb.AsyncDuckDB> {
   try {
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
     const conn = await db.connect();
-    await conn.query("INSTALL httpfs; LOAD httpfs;");
+    await conn.query("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial;");
     await conn.close();
     return db;
   } catch (err) {
@@ -1629,12 +1654,12 @@ async function exportGeoParquet(): Promise<void> {
 
 /* ---------------------------------------------------------- App actions */
 
-async function addRegion(bbox: BBox): Promise<void> {
+async function addRegion(bbox: BBox, polygon?: [number, number][]): Promise<void> {
   const id = state.nextAoiId++;
   const runId = 1;
   regionLoadRunIds.set(id, runId);
 
-  state.bboxes.push({ id, bbox });
+  state.bboxes.push({ id, bbox, ...(polygon ? { polygon } : {}) });
   state.regionRows.set(id, []);
   state.regionShardCounts.set(id, 0);
   state.loading = true;
@@ -1649,7 +1674,7 @@ async function addRegion(bbox: BBox): Promise<void> {
   state.gradientResults = [];
   state.threshold = Infinity;
   state.positiveMatches = [];
-  globe.setAois(state.bboxes.map((e) => e.bbox));
+  globe.setAois(state.bboxes);
   globe.setPositiveMatches([]);
   globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
@@ -1660,7 +1685,7 @@ async function addRegion(bbox: BBox): Promise<void> {
   try {
     const db = await getDuckDB();
     const conn = await db.connect();
-    const manifestResult = await conn.query(buildManifestQuery(bbox));
+    const manifestResult = await conn.query(buildManifestQuery(bbox, polygon));
     const shards = manifestResult.toArray() as ManifestRow[];
     await conn.close();
     if (regionLoadRunIds.get(id) !== runId) { state.loading = false; return; }
@@ -1680,7 +1705,7 @@ async function addRegion(bbox: BBox): Promise<void> {
     const shardUrls = shards.map((s) => resolveShardUrl(s.path));
     const regionAll: CandidateRow[] = [];
     const settled = await mapWithConcurrency(shardUrls, 8, async (url) => {
-      const rows = await fetchShardCandidates(db, url, bbox);
+      const rows = await fetchShardCandidates(db, url, bbox, polygon);
       if (regionLoadRunIds.get(id) !== runId) return rows;
       regionAll.push(...rows);
       state.regionRows.get(id)!.push(...rows);
@@ -1738,7 +1763,7 @@ function removeRegion(id: number): void {
   state.surpriseComputed = false;
   state.gradientResults = [];
   state.positiveMatches = [];
-  globe.setAois(state.bboxes.map((e) => e.bbox));
+  globe.setAois(state.bboxes);
   globe.setPositiveMatches([]);
   globe.setResults([], state.topK, state.viewMode);
   if (state.candidateRows.length) {
@@ -2211,8 +2236,8 @@ function bootstrap(): void {
   const mapEl = document.querySelector<HTMLDivElement>("#map");
   if (!mapEl) throw new Error("#map missing");
   globe = new GlobeMap(mapEl, {
-    onDrawComplete: (bbox) => {
-      void addRegion(bbox);
+    onDrawComplete: ({ bbox, polygon }) => {
+      void addRegion(bbox, polygon);
     },
     onAoiClick: (lat, lng) => addPositive(lat, lng),
     onNegativeClick: (lat, lng) => addNegative(lat, lng),
@@ -2601,6 +2626,8 @@ function tutorialStop(): void {
   const card = document.querySelector<HTMLElement>("#tut-card");
   if (overlay) overlay.classList.remove("is-active", "has-spotlight", "is-transitioning");
   if (card) card.classList.remove("is-active", "is-transitioning");
+  // If data never finished loading (early skip), clear the half-baked state
+  if (state.candidateRows.length === 0) clearAllRegions();
 }
 
 function wireTutorial(): void {
