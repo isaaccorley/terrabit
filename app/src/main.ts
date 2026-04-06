@@ -2349,18 +2349,20 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     target: "#positive-list",
     title: "Step 2 — place a positive exemplar",
-    body: "Patches are loaded. We click a farm field <em>inside</em> the region as the first exemplar, then a second one in Iowa — <strong>exemplars don't need to be inside the region</strong>. terrabit scores every patch by binary Hamming distance and surfaces the closest matches worldwide.",
+    body: "Patches are loaded. We click a farm field <em>inside</em> the region, then a second point just <em>outside</em> it — <strong>exemplars can go anywhere on the globe</strong>. terrabit fetches the external embedding on the fly and scores every patch by binary Hamming distance.",
     placement: "right",
     padding: 8,
     onEnter: () => {
+      // Don't re-run if navigating back — exemplars already placed
+      if (state.positivePoints.length > 0) return;
       const stepAtEnter = tutorialState.step;
       void tutWaitForData().then(async (ready) => {
         if (!ready || !tutorialState.active || tutorialState.step !== stepAtEnter) return;
         await tutSimulatePositive(DEMO_POS_LAT, DEMO_POS_LNG);
         await tutSimDelay(2200);
         if (!tutorialState.active || tutorialState.step !== stepAtEnter) return;
-        // Second exemplar outside the region — Iowa farmland
-        await tutSimulatePositive(41.82, -93.62);
+        // Second exemplar just north of the drawn bbox — visible on screen
+        await tutSimulatePositive(39.08, -98.35);
       });
     },
   },
@@ -2371,6 +2373,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
     placement: "right",
     padding: 8,
     onEnter: () => {
+      if (state.negativePoints.length > 0) return;
       void tutSimulateNegative(DEMO_NEG_LAT, DEMO_NEG_LNG);
     },
   },
