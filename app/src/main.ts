@@ -85,6 +85,11 @@ let scoringRequestId = 0;
 let latestScoreRunId = 0;
 let latestLoadRunId = 0;
 
+// List render fingerprints — skip DOM rebuild when data hasn't changed
+let lastPositiveListKey = "";
+let lastNegativeListKey = "";
+let lastResultListKey = "";
+
 const DUCKDB_BUNDLES: duckdb.DuckDBBundles = {
   mvp: { mainModule: duckdbWasmMvp, mainWorker: duckdbWorkerMvp },
   eh: { mainModule: duckdbWasmEh, mainWorker: duckdbWorkerEh },
@@ -146,6 +151,10 @@ function renderShell(): void {
             <span id="draw-label">Draw region</span>
           </button>
           <button id="clear-region-btn" class="btn btn-sm btn-ghost" type="button">Clear region</button>
+          <button id="zoom-region-btn" class="btn btn-sm btn-ghost" type="button" hidden>
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 2H2v4"/><path d="M14 6V2h-4"/><path d="M2 10v4h4"/><path d="M10 14h4v-4"/></svg>
+            Zoom to region
+          </button>
         </div>
         <div class="meta-row">
           <div class="meta-cell">
@@ -339,6 +348,7 @@ function els() {
     drawBtn: document.querySelector<HTMLButtonElement>("#draw-btn"),
     drawLabel: document.querySelector<HTMLElement>("#draw-label"),
     clearRegionBtn: document.querySelector<HTMLButtonElement>("#clear-region-btn"),
+    zoomRegionBtn: document.querySelector<HTMLButtonElement>("#zoom-region-btn"),
     mShards: document.querySelector<HTMLElement>("#m-shards"),
     mPatches: document.querySelector<HTMLElement>("#m-patches"),
     mRoi: document.querySelector<HTMLElement>("#m-roi"),
@@ -669,6 +679,7 @@ function updateView(): void {
   if (e.mShards) e.mShards.textContent = state.manifestShards.length ? String(state.manifestShards.length) : "—";
   if (e.mPatches) e.mPatches.textContent = state.candidateRows.length ? new Intl.NumberFormat().format(state.candidateRows.length) : "—";
   if (e.mRoi) e.mRoi.textContent = state.bbox ? `${(state.bbox.east - state.bbox.west).toFixed(2)}°×${(state.bbox.north - state.bbox.south).toFixed(2)}°` : "—";
+  if (e.zoomRegionBtn) e.zoomRegionBtn.hidden = !state.bbox;
 
   if (e.topkSlider) { e.topkSlider.value = String(state.topK); syncSliderFill(e.topkSlider); }
   if (e.topkValue) e.topkValue.textContent = String(state.topK);
@@ -717,7 +728,9 @@ function updateView(): void {
 
   // Negative section
   if (e.negativeSection) e.negativeSection.hidden = state.negativePoints.length === 0;
-  if (e.negativeList && state.negativePoints.length) {
+  const negKey = state.negativePoints.map((p) => p.id).join(",");
+  if (e.negativeList && state.negativePoints.length && negKey !== lastNegativeListKey) {
+    lastNegativeListKey = negKey;
     e.negativeList.innerHTML = "";
     for (const [i, p] of state.negativePoints.entries()) {
       const li = document.createElement("li");
@@ -740,6 +753,7 @@ function updateView(): void {
           state.negativePoints = state.negativePoints
             .filter((p) => p.id !== nid)
             .map((p, idx) => ({ ...p, id: idx + 1 }));
+          lastNegativeListKey = ""; // force rebuild on next updateView
           globe.setNegatives(state.negativePoints);
           void scoreCandidates();
           updateView();
@@ -752,6 +766,11 @@ function updateView(): void {
   }
 
   // Exemplar list
+  const positiveKey = state.positivePoints.map((p) => p.id).join(",");
+  if (positiveKey === lastPositiveListKey) {
+    // data unchanged — skip rebuild to avoid flash
+  } else {
+  lastPositiveListKey = positiveKey;
   e.positiveList.innerHTML = "";
   if (!state.positivePoints.length) {
     e.positiveList.innerHTML = `<li class="empty">No exemplars yet — click anywhere on the map to seed the search.</li>`;
@@ -778,6 +797,7 @@ function updateView(): void {
           state.positivePoints = state.positivePoints
             .filter((p) => p.id !== pid)
             .map((p, idx) => ({ ...p, id: idx + 1 }));
+          lastPositiveListKey = ""; // force rebuild on next updateView
           globe.setPositives(state.positivePoints);
           void scoreCandidates();
           updateView();
@@ -788,6 +808,7 @@ function updateView(): void {
       });
     });
   }
+  } // end positive list fingerprint block
 
   // Results list — pick the right source and slice for the active view
   const activeResults =
@@ -813,6 +834,9 @@ function updateView(): void {
       e.resultCount.textContent = `${compactNum(activeResults.length)} scored`;
   }
 
+  const resultKey = `${state.viewMode}|${visible.map((r) => r.chips_id).join(",")}`;
+  if (resultKey !== lastResultListKey) {
+  lastResultListKey = resultKey;
   e.resultList.innerHTML = "";
   if (visible.length) {
     for (const [i, r] of visible.entries()) {
@@ -841,6 +865,7 @@ function updateView(): void {
       b.addEventListener("click", () => globe.flyToBBox(row.bbox, { zoom: 13 }));
     });
   }
+  } // end result list rebuild
 }
 
 /* -------------------------------------------------------------- DuckDB layer */
@@ -1121,7 +1146,7 @@ async function scoreCandidates(): Promise<void> {
   const scored = await scoreWithWorker(exemplars);
   if (runId !== latestScoreRunId) return;
   state.results = scored;
-  globe.setResults(scored, state.topK, state.viewMode);
+  if (state.overlayVisible) globe.setResults(scored, state.topK, state.viewMode);
   setStatus(`Ranked ${scored.length} candidates against ${exemplars.length} exemplar(s).`);
   updateView();
 }
@@ -1208,7 +1233,7 @@ async function computeOutliers(): Promise<void> {
 
   state.outlierResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
   state.outlierComputed = true;
-  globe.setResults(state.outlierResults, state.topK, "outlier");
+  if (state.overlayVisible) globe.setResults(state.outlierResults, state.topK, "outlier");
   setStatus(`Outlier analysis: ${state.outlierResults.length} patches scored. Brightest = most unique.`);
   updateView();
 }
@@ -1241,7 +1266,7 @@ async function computeSurprise(): Promise<void> {
 
   state.surpriseResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
   state.surpriseComputed = true;
-  globe.setResults(state.surpriseResults, state.topK, "surprise");
+  if (state.overlayVisible) globe.setResults(state.surpriseResults, state.topK, "surprise");
   setStatus(`Surprise analysis: ${state.surpriseResults.length} patches scored. Brightest = most surprising.`);
   updateView();
 }
@@ -1278,7 +1303,7 @@ async function computeGradient(): Promise<void> {
   });
 
   state.gradientResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
-  globe.setResults(state.gradientResults, state.topK, "gradient");
+  if (state.overlayVisible) globe.setResults(state.gradientResults, state.topK, "gradient");
   setStatus(`Gradient analysis: ${state.gradientResults.length} patches scored. Brightest = strongest boundary.`);
   updateView();
 }
@@ -1610,9 +1635,10 @@ async function fetchExternalEmbedding(lat: number, lng: number): Promise<Candida
 }
 
 function addPositive(lat: number, lng: number): void {
-  const isInsideAoi = state.bbox && containsPoint(state.bbox, lat, lng) && state.candidateRows.length;
+  const insideBbox = state.bbox !== null && containsPoint(state.bbox, lat, lng);
+  const candidatesReady = state.candidateRows.length > 0;
 
-  if (isInsideAoi) {
+  if (insideBbox && candidatesReady) {
     // Deduplicate: skip if this click resolves to an already-selected patch
     const patch = findNearestCandidate(lat, lng);
     if (patch) {
@@ -1625,6 +1651,12 @@ function addPositive(lat: number, lng: number): void {
     state.positivePoints.push({ id: state.positivePoints.length + 1, lat, lng });
     globe.setPositives(state.positivePoints);
     void scoreCandidates();
+    updateView();
+  } else if (insideBbox) {
+    // Region is defined but still loading — queue point so it's ready when shards land
+    state.positivePoints.push({ id: state.positivePoints.length + 1, lat, lng });
+    globe.setPositives(state.positivePoints);
+    void scoreCandidates(); // returns early + shows "queued N exemplar(s)" status
     updateView();
   } else {
     // External exemplar — fetch embedding from remote parquet
@@ -1685,6 +1717,9 @@ function clearPoints(): void {
   if (!state.positivePoints.length && !state.negativePoints.length) return;
   state.positivePoints = [];
   state.negativePoints = [];
+  lastPositiveListKey = "";
+  lastNegativeListKey = "";
+  lastResultListKey = "";
   state.positiveMatches = [];
   state.results = [];
   state.gradientResults = [];
@@ -1698,6 +1733,9 @@ function clearPoints(): void {
 }
 
 function clearRegion(): void {
+  lastPositiveListKey = "";
+  lastNegativeListKey = "";
+  lastResultListKey = "";
   state.bbox = null;
   state.manifestShards = [];
   state.candidateRows = [];
@@ -1733,12 +1771,13 @@ function wire(): void {
     setStatus(globe.isArmed() ? "Draw armed — drag on the globe to define a region." : "Draw disarmed.");
   });
   e.clearRegionBtn?.addEventListener("click", clearRegion);
+  e.zoomRegionBtn?.addEventListener("click", () => { if (state.bbox) globe.fitBounds(state.bbox, { padding: 60 }); });
   e.clearPointsBtn?.addEventListener("click", clearPoints);
   e.exportBtn?.addEventListener("click", () => void exportGeoParquet());
   e.overlayToggle?.addEventListener("click", () => {
     state.overlayVisible = !state.overlayVisible;
     applyOverlay();
-    updateView();
+    e.overlayToggle?.classList.toggle("is-on", state.overlayVisible);
   });
   // Body-level help popover — escapes all overflow/transform containing blocks
   const helpContent: Record<string, string> = {
