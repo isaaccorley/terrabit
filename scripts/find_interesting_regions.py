@@ -21,7 +21,7 @@ DATA_DIR = Path("embeddings/clay-v1_5-binary-sentinel-2")
 RNG = np.random.default_rng(42)
 
 # Precompute popcount LUT
-_POPCOUNT_LUT = np.array([bin(i).count("1") for i in range(256)], dtype=np.int32)
+_POPCOUNT_LUT = np.array([i.bit_count() for i in range(256)], dtype=np.int32)
 
 
 def load_tile_fast(tile_x: int, tile_y: int, year: int | None = None) -> dict:
@@ -32,7 +32,11 @@ def load_tile_fast(tile_x: int, tile_y: int, year: int | None = None) -> dict:
         pattern = str(DATA_DIR / f"tile_x={tile_x}/tile_y={tile_y}/year=*/*.parquet")
     files = glob.glob(pattern)
     if not files:
-        return {"embeddings": np.empty((0, 128), dtype=np.uint8), "lats": np.empty(0), "lons": np.empty(0)}
+        return {
+            "embeddings": np.empty((0, 128), dtype=np.uint8),
+            "lats": np.empty(0),
+            "lons": np.empty(0),
+        }
 
     embs_list, lats_list, lons_list, years_list = [], [], [], []
     for f in files:
@@ -61,7 +65,11 @@ def load_tile_fast(tile_x: int, tile_y: int, year: int | None = None) -> dict:
                 break
 
     if not embs_list:
-        return {"embeddings": np.empty((0, 128), dtype=np.uint8), "lats": np.empty(0), "lons": np.empty(0)}
+        return {
+            "embeddings": np.empty((0, 128), dtype=np.uint8),
+            "lats": np.empty(0),
+            "lons": np.empty(0),
+        }
 
     return {
         "embeddings": np.concatenate(embs_list),
@@ -112,11 +120,17 @@ def find_temporal_change(tile_coords: list, n_sample: int = 3000) -> list:
         c25 = binary_centroid(d25["embeddings"])
         change = int(_POPCOUNT_LUT[np.bitwise_xor(c24, c25)].sum())
         mid = len(d24["lats"]) // 2
-        results.append({
-            "tile_x": tx, "tile_y": ty, "change_score": change,
-            "lat": float(d24["lats"][mid]), "lon": float(d24["lons"][mid]),
-            "n_2024": len(d24["embeddings"]), "n_2025": len(d25["embeddings"]),
-        })
+        results.append(
+            {
+                "tile_x": tx,
+                "tile_y": ty,
+                "change_score": change,
+                "lat": float(d24["lats"][mid]),
+                "lon": float(d24["lons"][mid]),
+                "n_2024": len(d24["embeddings"]),
+                "n_2025": len(d25["embeddings"]),
+            }
+        )
         if (idx + 1) % 500 == 0:
             console.print(f"  {idx + 1}/{len(sampled)} tiles...")
     results.sort(key=lambda x: x["change_score"], reverse=True)
@@ -134,7 +148,9 @@ def find_global_outliers(tile_coords: list, n_sample: int = 1500) -> list:
         tx, ty = tile_coords[i]
         data = load_tile_fast(tx, ty)
         if len(data["embeddings"]) > 0:
-            sel = RNG.choice(len(data["embeddings"]), size=min(15, len(data["embeddings"])), replace=False)
+            sel = RNG.choice(
+                len(data["embeddings"]), size=min(15, len(data["embeddings"])), replace=False
+            )
             centroid_embs.append(data["embeddings"][sel])
         if (idx + 1) % 500 == 0:
             console.print(f"    {idx + 1}/{len(sampled)}...")
@@ -152,20 +168,26 @@ def find_global_outliers(tile_coords: list, n_sample: int = 1500) -> list:
             continue
         dists = hamming_to_ref(data["embeddings"], centroid)
         top3 = np.argsort(dists)[-3:]
-        for j in top3:
-            candidates.append({
-                "tile_x": tx, "tile_y": ty,
+        candidates.extend(
+            {
+                "tile_x": tx,
+                "tile_y": ty,
                 "distance": int(dists[j]),
-                "lat": float(data["lats"][j]), "lon": float(data["lons"][j]),
+                "lat": float(data["lats"][j]),
+                "lon": float(data["lons"][j]),
                 "year": int(data["years"][j]),
-            })
+            }
+            for j in top3
+        )
         if (idx + 1) % 500 == 0:
             console.print(f"    {idx + 1}/{len(sampled)}...")
 
     candidates.sort(key=lambda x: x["distance"], reverse=True)
     deduped = []
     for c in candidates:
-        if not any(abs(c["lat"] - d["lat"]) < 0.5 and abs(c["lon"] - d["lon"]) < 0.5 for d in deduped):
+        if not any(
+            abs(c["lat"] - d["lat"]) < 0.5 and abs(c["lon"] - d["lon"]) < 0.5 for d in deduped
+        ):
             deduped.append(c)
         if len(deduped) >= 30:
             break
@@ -183,14 +205,17 @@ def find_diverse_tiles(tile_coords: list, n_sample: int = 1500) -> list:
             continue
         c = binary_centroid(data["embeddings"])
         dists = hamming_to_ref(data["embeddings"], c)
-        results.append({
-            "tile_x": tx, "tile_y": ty,
-            "variance": float(np.var(dists)),
-            "mean_dist": float(np.mean(dists)),
-            "lat": float(np.median(data["lats"])),
-            "lon": float(np.median(data["lons"])),
-            "n_patches": len(data["embeddings"]),
-        })
+        results.append(
+            {
+                "tile_x": tx,
+                "tile_y": ty,
+                "variance": float(np.var(dists)),
+                "mean_dist": float(np.mean(dists)),
+                "lat": float(np.median(data["lats"])),
+                "lon": float(np.median(data["lons"])),
+                "n_patches": len(data["embeddings"]),
+            }
+        )
         if (idx + 1) % 500 == 0:
             console.print(f"  {idx + 1}/{len(sampled)}...")
     results.sort(key=lambda x: x["variance"], reverse=True)
@@ -209,7 +234,9 @@ def find_cluster_centroids(tile_coords: list, n_clusters: int = 20) -> list:
         data = load_tile_fast(tx, ty)
         if len(data["embeddings"]) == 0:
             continue
-        sel = RNG.choice(len(data["embeddings"]), size=min(8, len(data["embeddings"])), replace=False)
+        sel = RNG.choice(
+            len(data["embeddings"]), size=min(8, len(data["embeddings"])), replace=False
+        )
         all_embs.append(data["embeddings"][sel])
         all_lats.append(data["lats"][sel])
         all_lons.append(data["lons"][sel])
@@ -233,12 +260,17 @@ def find_cluster_centroids(tile_coords: list, n_clusters: int = 20) -> list:
         dists = np.linalg.norm(X[mask] - km.cluster_centers_[c], axis=1)
         nearest = np.argmin(dists)
         orig_idx = np.where(mask)[0][nearest]
-        results.append({
-            "cluster": c, "size": int(mask.sum()),
-            "lat": float(lats[orig_idx]), "lon": float(lons[orig_idx]),
-            "year": int(years[orig_idx]),
-            "tile_x": 0, "tile_y": 0,  # placeholder
-        })
+        results.append(
+            {
+                "cluster": c,
+                "size": int(mask.sum()),
+                "lat": float(lats[orig_idx]),
+                "lon": float(lons[orig_idx]),
+                "year": int(years[orig_idx]),
+                "tile_x": 0,
+                "tile_y": 0,  # placeholder
+            }
+        )
     results.sort(key=lambda x: x["size"], reverse=True)
     return results
 
@@ -255,13 +287,16 @@ def find_high_entropy(tile_coords: list, n_sample: int = 1500) -> list:
         bits = np.unpackbits(data["embeddings"], axis=1).astype(np.float32)
         p = bits.mean(axis=0)
         entropy = float(np.mean(p * (1 - p)))
-        results.append({
-            "tile_x": tx, "tile_y": ty,
-            "entropy": entropy,
-            "lat": float(np.median(data["lats"])),
-            "lon": float(np.median(data["lons"])),
-            "n_patches": len(data["embeddings"]),
-        })
+        results.append(
+            {
+                "tile_x": tx,
+                "tile_y": ty,
+                "entropy": entropy,
+                "lat": float(np.median(data["lats"])),
+                "lon": float(np.median(data["lons"])),
+                "n_patches": len(data["embeddings"]),
+            }
+        )
         if (idx + 1) % 500 == 0:
             console.print(f"  {idx + 1}/{len(sampled)}...")
     results.sort(key=lambda x: x["entropy"], reverse=True)
@@ -315,7 +350,9 @@ def main() -> None:
     print_results("High Entropy Regions", entropy, ["entropy"])
 
     # Print suggested AOI presets
-    console.print("\n[bold yellow]═══ Suggested AOI Presets for app/src/main.ts ═══[/bold yellow]\n")
+    console.print(
+        "\n[bold yellow]═══ Suggested AOI Presets for app/src/main.ts ═══[/bold yellow]\n"
+    )
 
     console.print("// --- Temporal hotspots (most change 2024→2025) ---")
     for r in temporal[:5]:
