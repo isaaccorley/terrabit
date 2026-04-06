@@ -406,6 +406,27 @@ const AOI_PRESETS: AoiPreset[] = [
   { name: "Fjords Norway", tag: "fjord", bbox: { west: 6.5, south: 61.5, east: 7.5, north: 62.0 } },
   { name: "Mount Etna", tag: "volcano", bbox: { west: 14.85, south: 37.65, east: 15.15, north: 37.85 } },
   { name: "Cape Town", tag: "coastal city", bbox: { west: 18.3, south: -34.1, east: 18.7, north: -33.85 } },
+  // ── data-driven: temporal change hotspots (2024→2025) ──
+  { name: "Bristol Bay", tag: "sea ice Δ", bbox: { west: -162.6, south: 57.7, east: -162.0, north: 58.3 } },
+  { name: "Hudson Bay", tag: "ice melt Δ", bbox: { west: -81.2, south: 55.4, east: -80.6, north: 56.0 } },
+  { name: "Baffin Island", tag: "permafrost Δ", bbox: { west: -77.0, south: 67.4, east: -76.4, north: 68.0 } },
+  { name: "Comoros", tag: "tropical Δ", bbox: { west: 43.7, south: -11.2, east: 44.3, north: -10.6 } },
+  // ── data-driven: global outliers (rarest embeddings) ──
+  { name: "Adrar, Mali", tag: "deep desert", bbox: { west: -4.0, south: 19.8, east: -3.4, north: 20.4 } },
+  { name: "Qaidam Basin", tag: "salt desert", bbox: { west: 89.3, south: 37.3, east: 89.9, north: 37.9 } },
+  { name: "Libyan Sahara", tag: "erg outlier", bbox: { west: 21.2, south: 29.3, east: 21.8, north: 29.9 } },
+  // ── data-driven: diverse/mixed tiles ──
+  { name: "Oregon Coast", tag: "land-sea mix", bbox: { west: -124.5, south: 43.9, east: -123.9, north: 44.5 } },
+  { name: "Vanuatu", tag: "island mix", bbox: { west: 166.6, south: -17.4, east: 167.3, north: -16.8 } },
+  // ── data-driven: cluster centroids (biome representatives) ──
+  { name: "Komi Taiga", tag: "boreal forest", bbox: { west: 52.0, south: 63.3, east: 52.6, north: 63.9 } },
+  { name: "Outback", tag: "arid interior", bbox: { west: 135.1, south: -21.4, east: 135.7, north: -20.8 } },
+  { name: "Illinois Farm", tag: "temperate crop", bbox: { west: -90.7, south: 38.7, east: -90.1, north: 39.3 } },
+  { name: "Yunnan Canopy", tag: "subtropical", bbox: { west: 103.6, south: 23.0, east: 104.2, north: 23.6 } },
+  { name: "Patagonia", tag: "steppe", bbox: { west: -73.3, south: -43.2, east: -72.7, north: -42.6 } },
+  // ── data-driven: high bit-entropy (information-rich) ──
+  { name: "Veracruz", tag: "high entropy", bbox: { west: -97.8, south: 21.2, east: -97.2, north: 21.8 } },
+  { name: "Kamchatka", tag: "high entropy", bbox: { west: 158.2, south: 52.2, east: 158.8, north: 52.8 } },
 ];
 
 function renderAoiPresets(): void {
