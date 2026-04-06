@@ -619,7 +619,7 @@ function updateView(): void {
       b.addEventListener("focus", () => globe.setPreview(row));
       b.addEventListener("mouseleave", () => globe.setPreview(null));
       b.addEventListener("blur", () => globe.setPreview(null));
-      b.addEventListener("click", () => globe.flyToBBox(row.bbox, { zoom: 11 }));
+      b.addEventListener("click", () => globe.flyToBBox(row.bbox, { zoom: 13 }));
     });
   }
 }
