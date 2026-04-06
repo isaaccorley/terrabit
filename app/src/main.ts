@@ -175,18 +175,23 @@ function renderShell(): void {
             <div class="view-toggle" role="tablist" aria-label="Result view">
               <button data-view="topk" class="view-tab is-active" type="button" role="tab" title="Top-K" aria-label="Top-K ranked list">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="3" width="12" height="3" rx="0.6"/><rect x="2" y="7" width="9" height="3" rx="0.6"/><rect x="2" y="11" width="5" height="3" rx="0.6"/></svg>
+                <span class="view-label">Top-K</span>
               </button>
               <button data-view="heatmap" class="view-tab" type="button" role="tab" title="Heatmap" aria-label="Heatmap of all scored tiles">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="2" width="4" height="4"/><rect x="6" y="2" width="4" height="4"/><rect x="10" y="2" width="4" height="4"/><rect x="2" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="10" y="6" width="4" height="4"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/></svg>
+                <span class="view-label">Heat</span>
               </button>
               <button data-view="contour" class="view-tab" type="button" role="tab" title="Contour" aria-label="Smooth density surface">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12c2-4 4-6 6-7s4 0 6 3"/><path d="M2 10c2-3 4-4 6-5s4 0 6 2" opacity=".5"/></svg>
+                <span class="view-label">Contour</span>
               </button>
               <button data-view="outlier" class="view-tab" type="button" role="tab" title="Outlier" aria-label="Most unique patches">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="2"/><circle cx="4" cy="6" r="1.2"/><circle cx="12" cy="5" r="1.2"/><circle cx="13" cy="11" r="1.2"/><circle cx="3" cy="12" r="1.2"/></svg>
+                <span class="view-label">Outlier</span>
               </button>
               <button data-view="threshold" class="view-tab" type="button" role="tab" title="Cutoff" aria-label="Distance cutoff">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="10" width="2" height="4"/><rect x="5" y="6" width="2" height="8"/><rect x="8" y="3" width="2" height="11"/><rect x="11" y="8" width="2" height="6"/><line x1="1" y1="7" x2="15" y2="7" stroke-dasharray="2 1.5"/></svg>
+                <span class="view-label">Cutoff</span>
               </button>
             </div>
 

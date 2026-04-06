@@ -848,12 +848,21 @@ button { cursor: pointer; border: 0; background: none; }
   background: rgba(14, 11, 8, 0.4);
 }
 .view-tab {
-  display: grid;
-  place-items: center;
-  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 4px 5px;
   border-radius: 7px;
   color: var(--muted);
   transition: background 180ms, color 180ms, box-shadow 180ms;
+}
+.view-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 7px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
 }
 .view-tab:hover { color: var(--muted-strong); }
 .view-tab svg { opacity: 0.75; }
