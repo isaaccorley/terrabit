@@ -167,7 +167,7 @@ function renderShell(): void {
             <header class="sub-head sub-head-stack">
               <div>
                 <span class="panel-kicker">03 · Retrieval</span>
-                <h3 class="sub-title">Ranked candidates</h3>
+
               </div>
               <span id="result-count" class="result-summary">Awaiting region</span>
             </header>
