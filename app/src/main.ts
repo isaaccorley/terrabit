@@ -91,6 +91,17 @@ let scoringRequestId = 0;
 let latestScoreRunId = 0;
 const regionLoadRunIds = new Map<number, number>();
 
+// In-flight guards so background precompute and on-click don't double-fire
+let outlierComputing = false;
+let surpriseComputing = false;
+let gradientComputing = false;
+
+function resetComputeState(): void {
+  outlierComputing = false;
+  surpriseComputing = false;
+  gradientComputing = false;
+}
+
 function isInsideAnyAoi(lat: number, lng: number): boolean {
   return state.bboxes.some((e) => containsPoint(e.bbox, lat, lng));
 }
@@ -1196,6 +1207,8 @@ async function scoreCandidates(): Promise<void> {
   if (state.overlayVisible) globe.setResults(scored, state.topK, state.viewMode);
   setStatus(`Ranked ${scored.length} candidates against ${exemplars.length} exemplar(s).`);
   updateView();
+  // Background precompute gradient now that results exist
+  void computeGradient(true);
 }
 
 /* ---------------------------------------------------------- Overlay toggle */
@@ -1254,76 +1267,98 @@ function renderHistogram(scores: number[], threshold: number): string {
 
 /* ---------------------------------------------------------- Outlier scoring */
 
-async function computeOutliers(): Promise<void> {
+async function computeOutliers(background = false): Promise<void> {
   if (!scoringWorkerReady || !state.candidateRows.length) return;
-  if (state.outlierComputed) return;
+  if (state.outlierComputed || outlierComputing) return;
+  outlierComputing = true;
 
-  setStatus("Computing outlier scores…");
+  if (!background) setStatus("Computing outlier scores…");
   const worker = ensureScoringWorker();
   const requestId = ++scoringRequestId;
-  const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
-    const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
-      if (event.data.type !== "outlier-result" || event.data.requestId !== requestId) return;
-      worker.removeEventListener("message", onMessage);
-      worker.removeEventListener("error", onError);
-      resolve(event.data.results);
-    };
-    const onError = (event: ErrorEvent) => {
-      worker.removeEventListener("message", onMessage);
-      worker.removeEventListener("error", onError);
-      reject(event.error ?? new Error(event.message));
-    };
-    worker.addEventListener("message", onMessage);
-    worker.addEventListener("error", onError);
-    worker.postMessage({ type: "outlier", requestId, sampleSize: 200 });
-  });
-
-  state.outlierResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
-  state.outlierComputed = true;
-  if (state.overlayVisible) globe.setResults(state.outlierResults, state.topK, "outlier");
-  setStatus(`Outlier analysis: ${state.outlierResults.length} patches scored. Brightest = most unique.`);
-  updateView();
+  try {
+    const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
+      const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
+        if (event.data.type !== "outlier-result" || event.data.requestId !== requestId) return;
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        resolve(event.data.results);
+      };
+      const onError = (event: ErrorEvent) => {
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        reject(event.error ?? new Error(event.message));
+      };
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
+      worker.postMessage({ type: "outlier", requestId, sampleSize: 200 });
+    });
+    state.outlierResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
+    state.outlierComputed = true;
+    if (state.viewMode === "outlier") {
+      if (state.overlayVisible) globe.setResults(state.outlierResults, state.topK, "outlier");
+      setStatus(`Outlier analysis: ${state.outlierResults.length} patches scored. Brightest = most unique.`);
+      updateView();
+    } else if (!background) {
+      if (state.overlayVisible) globe.setResults(state.outlierResults, state.topK, "outlier");
+      setStatus(`Outlier analysis: ${state.outlierResults.length} patches scored. Brightest = most unique.`);
+      updateView();
+    }
+  } finally {
+    outlierComputing = false;
+  }
 }
 
 /* ---------------------------------------------------------- Surprise scoring */
 
-async function computeSurprise(): Promise<void> {
+async function computeSurprise(background = false): Promise<void> {
   if (!scoringWorkerReady || !state.candidateRows.length) return;
-  if (state.surpriseComputed) return;
+  if (state.surpriseComputed || surpriseComputing) return;
+  surpriseComputing = true;
 
-  setStatus("Computing spatial surprise scores\u2026");
+  if (!background) setStatus("Computing spatial surprise scores\u2026");
   const worker = ensureScoringWorker();
   const requestId = ++scoringRequestId;
-  const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
-    const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
-      if (event.data.type !== "surprise-result" || event.data.requestId !== requestId) return;
-      worker.removeEventListener("message", onMessage);
-      worker.removeEventListener("error", onError);
-      resolve(event.data.results);
-    };
-    const onError = (event: ErrorEvent) => {
-      worker.removeEventListener("message", onMessage);
-      worker.removeEventListener("error", onError);
-      reject(event.error ?? new Error(event.message));
-    };
-    worker.addEventListener("message", onMessage);
-    worker.addEventListener("error", onError);
-    worker.postMessage({ type: "surprise", requestId, k: 8 });
-  });
-
-  state.surpriseResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
-  state.surpriseComputed = true;
-  if (state.overlayVisible) globe.setResults(state.surpriseResults, state.topK, "surprise");
-  setStatus(`Surprise analysis: ${state.surpriseResults.length} patches scored. Brightest = most surprising.`);
-  updateView();
+  try {
+    const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
+      const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
+        if (event.data.type !== "surprise-result" || event.data.requestId !== requestId) return;
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        resolve(event.data.results);
+      };
+      const onError = (event: ErrorEvent) => {
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        reject(event.error ?? new Error(event.message));
+      };
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
+      worker.postMessage({ type: "surprise", requestId, k: 8 });
+    });
+    state.surpriseResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
+    state.surpriseComputed = true;
+    if (state.viewMode === "surprise") {
+      if (state.overlayVisible) globe.setResults(state.surpriseResults, state.topK, "surprise");
+      setStatus(`Surprise analysis: ${state.surpriseResults.length} patches scored. Brightest = most surprising.`);
+      updateView();
+    } else if (!background) {
+      if (state.overlayVisible) globe.setResults(state.surpriseResults, state.topK, "surprise");
+      setStatus(`Surprise analysis: ${state.surpriseResults.length} patches scored. Brightest = most surprising.`);
+      updateView();
+    }
+  } finally {
+    surpriseComputing = false;
+  }
 }
 
 /* ---------------------------------------------------------- Gradient scoring */
 
-async function computeGradient(): Promise<void> {
+async function computeGradient(background = false): Promise<void> {
   if (!scoringWorkerReady || !state.candidateRows.length || !state.results.length) return;
+  if (gradientComputing) return;
+  gradientComputing = true;
 
-  setStatus("Computing similarity gradient\u2026");
+  if (!background) setStatus("Computing similarity gradient\u2026");
   const worker = ensureScoringWorker();
   const requestId = ++scoringRequestId;
   const scoreArr = new Float64Array(state.candidateRows.length);
@@ -1332,27 +1367,36 @@ async function computeGradient(): Promise<void> {
   for (let i = 0; i < state.candidateRows.length; i++) {
     scoreArr[i] = scoreMap.get(state.candidateRows[i].chips_id) ?? 0;
   }
-  const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
-    const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
-      if (event.data.type !== "gradient-result" || event.data.requestId !== requestId) return;
-      worker.removeEventListener("message", onMessage);
-      worker.removeEventListener("error", onError);
-      resolve(event.data.results);
-    };
-    const onError = (event: ErrorEvent) => {
-      worker.removeEventListener("message", onMessage);
-      worker.removeEventListener("error", onError);
-      reject(event.error ?? new Error(event.message));
-    };
-    worker.addEventListener("message", onMessage);
-    worker.addEventListener("error", onError);
-    worker.postMessage({ type: "gradient", requestId, scores: scoreArr, k: 6 });
-  });
-
-  state.gradientResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
-  if (state.overlayVisible) globe.setResults(state.gradientResults, state.topK, "gradient");
-  setStatus(`Gradient analysis: ${state.gradientResults.length} patches scored. Brightest = strongest boundary.`);
-  updateView();
+  try {
+    const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
+      const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
+        if (event.data.type !== "gradient-result" || event.data.requestId !== requestId) return;
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        resolve(event.data.results);
+      };
+      const onError = (event: ErrorEvent) => {
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        reject(event.error ?? new Error(event.message));
+      };
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
+      worker.postMessage({ type: "gradient", requestId, scores: scoreArr, k: 6 });
+    });
+    state.gradientResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
+    if (state.viewMode === "gradient") {
+      if (state.overlayVisible) globe.setResults(state.gradientResults, state.topK, "gradient");
+      setStatus(`Gradient analysis: ${state.gradientResults.length} patches scored. Brightest = strongest boundary.`);
+      updateView();
+    } else if (!background) {
+      if (state.overlayVisible) globe.setResults(state.gradientResults, state.topK, "gradient");
+      setStatus(`Gradient analysis: ${state.gradientResults.length} patches scored. Brightest = strongest boundary.`);
+      updateView();
+    }
+  } finally {
+    gradientComputing = false;
+  }
 }
 
 /* ---------------------------------------------------------- Region fingerprint */
@@ -1553,6 +1597,7 @@ async function addRegion(bbox: BBox): Promise<void> {
   state.regionShardCounts.set(id, 0);
   state.loading = true;
   // Clear derived results so stale overlay doesn't linger
+  resetComputeState();
   state.results = [];
   state.outlierResults = [];
   state.outlierComputed = false;
@@ -1620,6 +1665,9 @@ async function addRegion(bbox: BBox): Promise<void> {
     if (state.positivePoints.length && state.candidateRows.length) {
       void scoreCandidates();
     }
+    // Background precompute for region-only views (no exemplars needed)
+    void computeOutliers(true);
+    void computeSurprise(true);
   } catch (err) {
     if (regionLoadRunIds.get(id) !== runId) return;
     state.loading = false;
@@ -1635,6 +1683,7 @@ function removeRegion(id: number): void {
   state.regionRows.delete(id);
   state.regionShardCounts.delete(id);
   regionLoadRunIds.delete(id);
+  resetComputeState();
   state.candidateRows = [...state.regionRows.values()].flat();
   state.results = [];
   state.outlierResults = [];
@@ -1847,6 +1896,7 @@ function clearPoints(): void {
   lastPositiveListKey = "";
   lastNegativeListKey = "";
   lastResultListKey = "";
+  gradientComputing = false;
   state.positiveMatches = [];
   state.results = [];
   state.gradientResults = [];
@@ -1872,6 +1922,7 @@ function clearAllRegions(): void {
   state.positivePoints = [];
   state.negativePoints = [];
   state.positiveMatches = [];
+  resetComputeState();
   state.results = [];
   state.topK = DEFAULT_TOP_K;
   state.viewMode = "topk";
@@ -1959,18 +2010,27 @@ function wire(): void {
     tab.addEventListener("click", () => {
       const mode = tab.dataset.view as ViewMode;
       state.viewMode = mode;
-      if (mode === "outlier" && !state.outlierComputed) {
-        void computeOutliers();
-      } else if (mode === "outlier") {
+      if (mode === "outlier" && state.outlierComputed) {
         globe.setResults(state.outlierResults, state.topK, mode);
         setStatus(`Outlier view — ${state.outlierResults.length} patches scored. Brightest = most unique.`);
-      } else if (mode === "surprise" && !state.surpriseComputed) {
-        void computeSurprise();
-      } else if (mode === "surprise") {
+      } else if (mode === "outlier" && outlierComputing) {
+        setStatus("Computing outlier scores… results will appear shortly.");
+      } else if (mode === "outlier") {
+        void computeOutliers();
+      } else if (mode === "surprise" && state.surpriseComputed) {
         globe.setResults(state.surpriseResults, state.topK, mode);
         setStatus(`Surprise view — ${state.surpriseResults.length} patches scored. Brightest = most spatially anomalous.`);
+      } else if (mode === "surprise" && surpriseComputing) {
+        setStatus("Computing surprise scores… results will appear shortly.");
+      } else if (mode === "surprise") {
+        void computeSurprise();
       } else if (mode === "gradient") {
-        if (state.results.length) {
+        if (gradientComputing) {
+          setStatus("Computing edge scores… results will appear shortly.");
+        } else if (state.gradientResults.length) {
+          globe.setResults(state.gradientResults, state.topK, mode);
+          setStatus(`Edge view — ${state.gradientResults.length} patches scored. Brightest = strongest boundary.`);
+        } else if (state.results.length) {
           void computeGradient();
         } else {
           setStatus("Edge view — add exemplars first to compute similarity gradients.");
