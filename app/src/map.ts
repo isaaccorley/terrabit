@@ -4,6 +4,7 @@ import maplibregl from "maplibre-gl/dist/maplibre-gl-dev.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import type {
+  AoiEntry,
   BBox,
   NegativePoint,
   PositiveMatch,
@@ -19,7 +20,7 @@ const SENTINEL_ATTRIBUTION =
   'Sentinel-2 cloudless — <a href="https://s2maps.eu" target="_blank" rel="noreferrer">s2maps.eu</a> by <a href="https://eox.at" target="_blank" rel="noreferrer">EOX</a> (Copernicus Sentinel data 2024)';
 
 export type MapCallbacks = {
-  onDrawComplete: (bbox: BBox) => void;
+  onDrawComplete: (result: { bbox: BBox; polygon?: [number, number][] }) => void;
   onAoiClick: (lat: number, lng: number) => void;
   onNegativeClick: (lat: number, lng: number) => void;
   onResultHover: (result: RankedRow | null) => void;
@@ -29,23 +30,32 @@ export type MapCallbacks = {
   getTopK: () => number;
 };
 
+type DrawMode = "rect" | "polygon";
+
 type DrawState = {
+  mode: DrawMode;
   startLngLat: maplibregl.LngLat | null;
   startPoint: { x: number; y: number } | null;
   moved: boolean;
   armed: boolean;
   box: HTMLDivElement | null;
+  polyVertices: maplibregl.LngLat[];
+  polyActive: boolean;
 };
 
 export class GlobeMap {
   readonly map: maplibregl.Map;
   private cb: MapCallbacks;
+  private _lastResultsKey = "";
   private draw: DrawState = {
+    mode: "rect",
     startLngLat: null,
     startPoint: null,
     moved: false,
     armed: false,
     box: null,
+    polyVertices: [],
+    polyActive: false,
   };
   private styleReady = false;
   private pendingRender: (() => void)[] = [];
@@ -150,7 +160,7 @@ export class GlobeMap {
 
   private addSources(): void {
     const empty = { type: "FeatureCollection", features: [] } as const;
-    for (const id of ["aoi", "positives", "negatives", "positive-matches", "results", "preview", "draft"]) {
+    for (const id of ["aoi", "positives", "negatives", "positive-matches", "results", "preview", "draft", "poly-draft"]) {
       this.map.addSource(id, { type: "geojson", data: empty as any });
     }
   }
@@ -189,6 +199,21 @@ export class GlobeMap {
       type: "line",
       source: "draft",
       paint: { "line-color": "#e5a853", "line-width": 1.6 },
+    });
+
+    // Live polygon draw preview
+    this.map.addLayer({
+      id: "poly-draft-line",
+      type: "line",
+      source: "poly-draft",
+      paint: { "line-color": "#e5a853", "line-width": 1.6, "line-dasharray": [2, 2] },
+    });
+    this.map.addLayer({
+      id: "poly-draft-vertices",
+      type: "circle",
+      source: "poly-draft",
+      filter: ["==", "$type", "Point"],
+      paint: { "circle-radius": 4, "circle-color": "#e5a853" },
     });
 
     // Ranked results
@@ -294,13 +319,41 @@ export class GlobeMap {
     else this.pendingRender.push(fn);
   }
 
-  setAois(bboxes: BBox[]): void {
+  setAois(entries: Pick<AoiEntry, "bbox" | "polygon">[]): void {
     this.whenReady(() => {
       const src = this.map.getSource("aoi") as maplibregl.GeoJSONSource;
       src?.setData({
         type: "FeatureCollection",
-        features: bboxes.map((b) => bboxToPolygon(b)),
+        features: entries.map((e) =>
+          e.polygon ? ringToFeature(e.polygon) : bboxToPolygon(e.bbox)
+        ),
       });
+    });
+  }
+
+  private setPolyDraft(vertices: maplibregl.LngLat[] | null): void {
+    const src = this.map.getSource("poly-draft") as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    if (!vertices || vertices.length < 2) {
+      src.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+    const coords = vertices.map((v) => [v.lng, v.lat] as [number, number]);
+    const ring = coords.length >= 3 ? [...coords, coords[0]] : coords;
+    src.setData({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: ring },
+          properties: {},
+        },
+        ...coords.map((c) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: c },
+          properties: {},
+        })),
+      ],
     });
   }
 
@@ -353,36 +406,64 @@ export class GlobeMap {
 
   setResults(results: RankedRow[], topK: number, viewMode: ViewMode): void {
     this.whenReady(() => {
-      // Tile-based views
-      const useColor = viewMode !== "topk";
-      const list = viewMode === "topk" ? results.slice(0, topK) : results;
+      const src = this.map.getSource("results") as maplibregl.GeoJSONSource;
+      if (!src) return;
 
-      if (!list.length) {
-        (this.map.getSource("results") as maplibregl.GeoJSONSource)?.setData({
-          type: "FeatureCollection",
-          features: [],
-        });
+      if (!results.length) {
+        if (this._lastResultsKey) {
+          src.setData({ type: "FeatureCollection", features: [] });
+          this._lastResultsKey = "";
+        }
+        this.map.setFilter("results-fill", null);
+        this.map.setFilter("results-line", null);
         return;
       }
-      const n = list.length;
-      const features = list.map((r, i) => {
-        const t = n > 1 ? i / (n - 1) : 0;
-        const color = useColor ? interpolatePlasma(t) : "#d0542c";
-        const fillOpacity = useColor ? 0.28 - t * 0.14 : 0.18 - t * 0.1;
-        const lineWidth = useColor ? 0.6 : 1.4;
-        return bboxToPolygon(r.bbox, {
-          chipsId: r.chips_id,
-          score: r.score,
-          color,
-          fillOpacity,
-          lineWidth,
+
+      const n = results.length;
+      const dataKey = results.map((r) => r.chips_id).join("\0");
+      if (dataKey !== this._lastResultsKey) {
+        const features = results.map((r, i) => {
+          const t = n > 1 ? i / (n - 1) : 0;
+          return bboxToPolygon(r.bbox, {
+            chipsId: r.chips_id,
+            score: r.score,
+            rank: i,
+            heatColor: interpolatePlasma(t),
+            heatFillOpacity: 0.28 - t * 0.14,
+          });
         });
-      });
-      (this.map.getSource("results") as maplibregl.GeoJSONSource)?.setData({
-        type: "FeatureCollection",
-        features,
-      });
+        src.setData({ type: "FeatureCollection", features });
+        this._lastResultsKey = dataKey;
+      }
+
+      this._applyViewStyle(viewMode, topK, n);
     });
+  }
+
+  private _applyViewStyle(viewMode: ViewMode, topK: number, total: number): void {
+    const rankFilter = viewMode === "topk" && total > 0
+      ? (["<", ["get", "rank"], topK] as any)
+      : null;
+    this.map.setFilter("results-fill", rankFilter);
+    this.map.setFilter("results-line", rankFilter);
+
+    if (viewMode !== "topk") {
+      this.map.setPaintProperty("results-fill", "fill-color", ["coalesce", ["get", "heatColor"], "#d0542c"]);
+      this.map.setPaintProperty("results-fill", "fill-opacity", ["coalesce", ["get", "heatFillOpacity"], 0.18]);
+      this.map.setPaintProperty("results-line", "line-color", ["coalesce", ["get", "heatColor"], "#d0542c"]);
+      this.map.setPaintProperty("results-line", "line-width", 0.6);
+      this.map.setPaintProperty("results-line", "line-opacity", 0.9);
+    } else {
+      this.map.setPaintProperty("results-fill", "fill-color", "#d0542c");
+      this.map.setPaintProperty("results-fill", "fill-opacity",
+        total > 1
+          ? (["interpolate", ["linear"], ["get", "rank"], 0, 0.18, Math.min(topK - 1, total - 1), 0.08] as any)
+          : 0.18,
+      );
+      this.map.setPaintProperty("results-line", "line-color", "#d0542c");
+      this.map.setPaintProperty("results-line", "line-width", 1.4);
+      this.map.setPaintProperty("results-line", "line-opacity", 0.9);
+    }
   }
 
   setPreview(result: RankedRow | null): void {
@@ -422,8 +503,9 @@ export class GlobeMap {
     );
   }
 
-  armDraw(on: boolean): void {
+  armDraw(on: boolean, mode: DrawMode = "rect"): void {
     this.draw.armed = on;
+    this.draw.mode = mode;
     const c = this.map.getCanvas();
     c.style.cursor = on ? "crosshair" : "";
   }
@@ -432,21 +514,29 @@ export class GlobeMap {
     return this.draw.armed;
   }
 
+  getDrawMode(): DrawMode {
+    return this.draw.mode;
+  }
+
   cancelDraft(): void {
     this.draw.startLngLat = null;
     this.draw.startPoint = null;
     this.draw.moved = false;
+    this.draw.polyVertices = [];
+    this.draw.polyActive = false;
     this.removeDomBox();
     this.setDraft(null);
+    this.setPolyDraft(null);
     this.map.dragPan.enable();
   }
 
   private wireDrawing(): void {
     const canvas = () => this.map.getCanvas();
 
+    // ── Rectangle mode ───────────────────────────────────────────────────────
     this.map.on("mousedown", (e) => {
       const ev = e.originalEvent;
-      if (!ev.shiftKey && !this.draw.armed) return;
+      if (!(ev.shiftKey || this.draw.armed) || this.draw.mode !== "rect") return;
       ev.preventDefault();
       this.map.dragPan.disable();
       this.draw.startLngLat = e.lngLat;
@@ -456,15 +546,17 @@ export class GlobeMap {
     });
 
     this.map.on("mousemove", (e) => {
-      if (!this.draw.startLngLat || !this.draw.startPoint) return;
-      this.draw.moved = true;
-      this.updateDomBox(e.point.x, e.point.y);
-      const bbox = bboxFromLngLats(this.draw.startLngLat, e.lngLat);
-      this.setDraft(bbox);
+      if (this.draw.mode === "rect" && this.draw.startLngLat && this.draw.startPoint) {
+        this.draw.moved = true;
+        this.updateDomBox(e.point.x, e.point.y);
+        this.setDraft(bboxFromLngLats(this.draw.startLngLat, e.lngLat));
+      } else if (this.draw.mode === "polygon" && this.draw.polyActive) {
+        this.setPolyDraft([...this.draw.polyVertices, e.lngLat]);
+      }
     });
 
     this.map.on("mouseup", (e) => {
-      if (!this.draw.startLngLat) return;
+      if (this.draw.mode !== "rect" || !this.draw.startLngLat) return;
       const start = this.draw.startLngLat;
       const moved = this.draw.moved;
       this.draw.startLngLat = null;
@@ -477,7 +569,34 @@ export class GlobeMap {
       canvas().style.cursor = "";
       if (!moved) return;
       const bbox = bboxFromLngLats(start, e.lngLat);
-      this.cb.onDrawComplete(bbox);
+      this.cb.onDrawComplete({ bbox });
+    });
+
+    // ── Polygon mode ─────────────────────────────────────────────────────────
+    this.map.on("click", (e) => {
+      if (!this.draw.armed || this.draw.mode !== "polygon") return;
+      if (e.originalEvent.detail === 2) return; // skip second click of a dblclick
+      this.draw.polyActive = true;
+      this.draw.polyVertices.push(e.lngLat);
+      this.setPolyDraft([...this.draw.polyVertices]);
+    });
+
+    this.map.on("dblclick", (e) => {
+      if (!this.draw.armed || this.draw.mode !== "polygon") return;
+      if (this.draw.polyVertices.length < 3) return;
+      e.preventDefault();
+      const verts = this.draw.polyVertices;
+      const ring: [number, number][] = [
+        ...verts.map((v) => [v.lng, v.lat] as [number, number]),
+        [verts[0].lng, verts[0].lat],
+      ];
+      const bbox = ringToBBox(ring);
+      this.draw.polyVertices = [];
+      this.draw.polyActive = false;
+      this.draw.armed = false;
+      canvas().style.cursor = "";
+      this.setPolyDraft(null);
+      this.cb.onDrawComplete({ bbox, polygon: ring });
     });
   }
 
@@ -491,6 +610,7 @@ export class GlobeMap {
     });
 
     this.map.on("click", (e) => {
+      if (this.draw.armed && this.draw.mode === "polygon") return;
       if (this.draw.startLngLat) return;
       // Shift+click → negative exemplar
       if (e.originalEvent.shiftKey && !this.draw.armed) {
@@ -567,6 +687,25 @@ function bboxFromLngLats(a: maplibregl.LngLat, b: maplibregl.LngLat): BBox {
     east: Math.max(a.lng, b.lng),
     south: Math.min(a.lat, b.lat),
     north: Math.max(a.lat, b.lat),
+  };
+}
+
+function ringToFeature(ring: [number, number][], properties: Record<string, unknown> = {}): GeoJSON.Feature {
+  return {
+    type: "Feature",
+    properties,
+    geometry: { type: "Polygon", coordinates: [ring] },
+  };
+}
+
+function ringToBBox(ring: [number, number][]): BBox {
+  const lngs = ring.map((c) => c[0]);
+  const lats = ring.map((c) => c[1]);
+  return {
+    west: Math.min(...lngs),
+    east: Math.max(...lngs),
+    south: Math.min(...lats),
+    north: Math.max(...lats),
   };
 }
 

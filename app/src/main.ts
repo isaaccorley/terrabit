@@ -2340,6 +2340,31 @@ async function tutSimulatePositive(lat: number, lng: number): Promise<void> {
   addPositive(lat, lng);
 }
 
+// Place an exemplar just outside the AOI using a loaded candidate's embedding —
+// guaranteed to resolve (no HTTP fetch), shown slightly north of the bbox edge.
+async function tutSimulateExternalPositive(): Promise<void> {
+  const candidates = state.candidateRows;
+  if (!candidates.length) return;
+  // Pick a candidate near the north edge of the demo bbox
+  const sorted = candidates.slice().sort((a, b) => {
+    const latA = (a.bbox.north + a.bbox.south) / 2;
+    const latB = (b.bbox.north + b.bbox.south) / 2;
+    return Math.abs(DEMO_BBOX.north - latA) - Math.abs(DEMO_BBOX.north - latB);
+  });
+  const pick = sorted[0];
+  const c = centroid(pick.bbox);
+  // Visual marker sits just above the bbox north edge — clearly outside the region
+  const markerLat = DEMO_BBOX.north + 0.08;
+  const markerLng = c.lng;
+  tutShowRipple(markerLat, markerLng, "#c74633");
+  await tutSimDelay(180);
+  const id = state.positivePoints.length + 1;
+  state.positivePoints.push({ id, lat: markerLat, lng: markerLng, embedding: pick.embedding, chips_id: pick.chips_id });
+  globe.setPositives(state.positivePoints);
+  void scoreCandidates();
+  updateView();
+}
+
 async function tutSimulateNegative(lat: number, lng: number): Promise<void> {
   tutShowRipple(lat, lng, "#3b82f6");
   await tutSimDelay(180);
@@ -2394,8 +2419,8 @@ const TUTORIAL_STEPS: TutorialStep[] = [
         await tutSimulatePositive(DEMO_POS_LAT, DEMO_POS_LNG);
         await tutSimDelay(2200);
         if (!tutorialState.active || tutorialState.step !== stepAtEnter) return;
-        // Second exemplar just north of the drawn bbox — visible on screen
-        await tutSimulatePositive(39.08, -98.35);
+        // Second exemplar just north of the drawn bbox — visible on screen, injected directly
+        await tutSimulateExternalPositive();
       });
     },
   },

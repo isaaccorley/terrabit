@@ -1496,7 +1496,7 @@ button { cursor: pointer; border: 0; background: none; }
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(14, 11, 8, 0.72);
+  background: rgba(14, 11, 8, 0.45);
   transition: opacity 250ms ease;
 }
 /* Spotlight cutout via the box-shadow trick on a positioned child */
@@ -1508,7 +1508,7 @@ button { cursor: pointer; border: 0; background: none; }
   width: var(--tut-spot-w, 0px);
   height: var(--tut-spot-h, 0px);
   border-radius: 10px;
-  box-shadow: 0 0 0 9999px rgba(14, 11, 8, 0.72);
+  box-shadow: 0 0 0 9999px rgba(14, 11, 8, 0.45);
   pointer-events: none;
   opacity: 0;
   transition: opacity 250ms ease, left 300ms ease, top 300ms ease, width 300ms ease, height 300ms ease;
