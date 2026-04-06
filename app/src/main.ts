@@ -2091,14 +2091,14 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     target: "#draw-btn",
     title: "Step 2 — draw a small region",
-    body: "Click <strong>Draw region</strong>, then drag a box on the map — or hold <kbd>Shift</kbd> and drag anywhere. You can also click any preset in the AOI panel.",
+    body: "Click <strong>Draw region</strong>, then drag a box on the map — or hold <kbd>Shift</kbd> and drag anywhere. Draw as many regions as you like; terrabit searches all of them together. You can also click any preset in the AOI panel.",
     placement: "right",
     padding: 12,
   },
   {
     target: "#positive-list",
     title: "Step 3 — click a positive exemplar",
-    body: "Once the status bar says patches are loaded, <strong>click anywhere on the map</strong> to place your first exemplar. Try a field, a rooftop, or a road intersection. terrabit instantly scores and ranks every patch by binary similarity.",
+    body: "Once the status bar says patches are loaded, <strong>click anywhere on the map</strong> to place your first exemplar — exemplars don't need to be inside a drawn region, you can click anywhere on the globe. Try a field, a rooftop, or a road intersection. terrabit instantly scores and ranks every patch by binary similarity.",
     placement: "right",
     padding: 8,
   },
