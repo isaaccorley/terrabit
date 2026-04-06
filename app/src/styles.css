@@ -843,6 +843,11 @@ button { cursor: pointer; border: 0; background: none; }
   background: rgba(199, 70, 51, 0.08);
 }
 .icon-btn[hidden] { display: none; }
+.icon-btn.is-on {
+  color: var(--accent);
+  border-color: rgba(208, 84, 44, 0.4);
+  background: rgba(208, 84, 44, 0.12);
+}
 
 /* ------------------------------------------------------ View segmented control */
 

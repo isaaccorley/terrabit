@@ -42,6 +42,7 @@ type AppState = {
   topK: number;
   viewMode: ViewMode;
   threshold: number;
+  overlayVisible: boolean;
   loading: boolean;
 };
 
@@ -58,6 +59,7 @@ const state: AppState = {
   topK: DEFAULT_TOP_K,
   viewMode: "topk",
   threshold: Infinity,
+  overlayVisible: true,
   loading: false,
 };
 
@@ -169,7 +171,12 @@ function renderShell(): void {
                 <span class="panel-kicker">03 · Retrieval</span>
 
               </div>
-              <span id="result-count" class="result-summary"></span>
+              <div class="sub-head-actions">
+                <span id="result-count" class="result-summary"></span>
+                <button id="overlay-toggle" class="icon-btn is-on" type="button" title="Toggle map overlay" aria-label="Toggle map overlay">
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M1 8l7-5 7 5-7 5z"/><path d="M1 11l7 5 7-5" opacity=".4"/></svg>
+                </button>
+              </div>
             </header>
 
             <div class="view-toggle" role="tablist" aria-label="Result view">
@@ -265,6 +272,7 @@ function els() {
     thresholdValue: document.querySelector<HTMLElement>("#threshold-value"),
     thresholdCount: document.querySelector<HTMLElement>("#threshold-count"),
     histogramWrap: document.querySelector<HTMLElement>("#histogram-wrap"),
+    overlayToggle: document.querySelector<HTMLButtonElement>("#overlay-toggle"),
     clearPointsBtn: document.querySelector<HTMLButtonElement>("#clear-points-btn"),
     resultCount: document.querySelector<HTMLElement>("#result-count"),
     resultList: document.querySelector<HTMLOListElement>("#result-list"),
@@ -537,6 +545,7 @@ function updateView(): void {
   if (e.exemplarCount) e.exemplarCount.textContent = String(state.positivePoints.length);
   if (e.clearPointsBtn) e.clearPointsBtn.hidden = state.positivePoints.length === 0;
   if (e.exportBtn) e.exportBtn.hidden = state.results.length === 0;
+  e.overlayToggle?.classList.toggle("is-on", state.overlayVisible);
 
   // Exemplar list
   e.positiveList.innerHTML = "";
@@ -836,6 +845,22 @@ async function scoreCandidates(): Promise<void> {
   updateView();
 }
 
+/* ---------------------------------------------------------- Overlay toggle */
+
+function applyOverlay(): void {
+  if (state.overlayVisible) {
+    const activeResults = state.viewMode === "outlier" ? state.outlierResults : state.results;
+    if (state.viewMode === "threshold") {
+      const filtered = activeResults.filter((r) => r.score <= state.threshold);
+      globe.setResults(filtered, filtered.length, state.viewMode);
+    } else {
+      globe.setResults(activeResults, state.topK, state.viewMode);
+    }
+  } else {
+    globe.setResults([], 0, state.viewMode);
+  }
+}
+
 /* ---------------------------------------------------------- Histogram */
 
 function renderHistogram(scores: number[], threshold: number): string {
@@ -1123,6 +1148,11 @@ function wire(): void {
   e.clearPointsBtn?.addEventListener("click", clearPoints);
   e.clearPointsBtn2?.addEventListener("click", clearPoints);
   e.exportBtn?.addEventListener("click", () => void exportGeoParquet());
+  e.overlayToggle?.addEventListener("click", () => {
+    state.overlayVisible = !state.overlayVisible;
+    applyOverlay();
+    updateView();
+  });
   e.topkSlider?.addEventListener("input", (ev) => {
     state.topK = Number((ev.currentTarget as HTMLInputElement).value);
     globe.setResults(state.results, state.topK, state.viewMode);
