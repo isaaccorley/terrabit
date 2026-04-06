@@ -1176,9 +1176,14 @@ async function scoreCandidates(): Promise<void> {
   // once the last shard lands and the scoring worker is ready.
   if (state.loading || !scoringWorkerReady) {
     if (state.positivePoints.length) {
-      setStatus(
-        `Queued ${state.positivePoints.length} exemplar(s) — waiting for shards to finish downloading…`,
-      );
+      if (state.loading) {
+        setStatus(
+          `Queued ${state.positivePoints.length} exemplar(s) — waiting for shards to finish downloading…`,
+        );
+      } else {
+        // scoringWorkerReady=false but nothing downloading — no AOI loaded yet
+        setStatus("Exemplar set — shift-drag to define a region and start searching.");
+      }
     }
     return;
   }
@@ -1658,7 +1663,7 @@ async function addRegion(bbox: BBox): Promise<void> {
     const manifestResult = await conn.query(buildManifestQuery(bbox));
     const shards = manifestResult.toArray() as ManifestRow[];
     await conn.close();
-    if (regionLoadRunIds.get(id) !== runId) return;
+    if (regionLoadRunIds.get(id) !== runId) { state.loading = false; return; }
 
     state.regionShardCounts.set(id, shards.length);
     updateView();
@@ -1684,7 +1689,7 @@ async function addRegion(bbox: BBox): Promise<void> {
       setStatus(`AOI ${id} — ${completed}/${shards.length} shards · ${new Intl.NumberFormat().format(state.candidateRows.length)} total patches`);
       return rows;
     });
-    if (regionLoadRunIds.get(id) !== runId) return;
+    if (regionLoadRunIds.get(id) !== runId) { state.loading = false; return; }
 
     const failed = settled.filter((r) => r.status === "rejected");
     if (failed.length) console.warn(`AOI ${id} shard fetch failures:`, failed);
@@ -1707,8 +1712,8 @@ async function addRegion(bbox: BBox): Promise<void> {
     void computeOutliers(true);
     void computeSurprise(true);
   } catch (err) {
-    if (regionLoadRunIds.get(id) !== runId) return;
     state.loading = false;
+    if (regionLoadRunIds.get(id) !== runId) return;
     setStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -1721,6 +1726,8 @@ function removeRegion(id: number): void {
   state.regionRows.delete(id);
   state.regionShardCounts.delete(id);
   regionLoadRunIds.delete(id);
+  // If no more regions are loading, clear the flag so scoreCandidates() isn't stuck.
+  if (!state.bboxes.length) state.loading = false;
   resetComputeState();
   state.candidateRows = [...state.regionRows.values()].flat();
   state.baseResults = [];
@@ -1976,6 +1983,7 @@ function clearAllRegions(): void {
   state.regionRows = new Map();
   state.regionShardCounts = new Map();
   regionLoadRunIds.clear();
+  state.loading = false;
   state.candidateRows = [];
   state.positivePoints = [];
   state.negativePoints = [];
@@ -2237,51 +2245,150 @@ type TutorialStep = {
   onEnter?: () => void;   // side-effect fired when step becomes active
 };
 
+/* ---- Tutorial simulation helpers ---- */
+
+// Kansas AOI used throughout the demo
+const DEMO_BBOX: BBox = { west: -98.6, east: -98.1, south: 38.45, north: 38.95 };
+// Positive: large open field near center
+const DEMO_POS_LAT = 38.72;
+const DEMO_POS_LNG = -98.34;
+// Negative: different land type (sandy/barren patch to the southwest)
+const DEMO_NEG_LAT = 38.52;
+const DEMO_NEG_LNG = -98.54;
+
+let _tutSimHandles: ReturnType<typeof setTimeout>[] = [];
+
+function tutSimDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const h = setTimeout(resolve, ms);
+    _tutSimHandles.push(h);
+  });
+}
+
+function tutCancelSim(): void {
+  _tutSimHandles.forEach(clearTimeout);
+  _tutSimHandles = [];
+}
+
+async function tutSimulateDraw(bbox: BBox, durationMs = 1400): Promise<void> {
+  const steps = 32;
+  const interval = durationMs / steps;
+  for (let i = 1; i <= steps; i++) {
+    if (!tutorialState.active) return;
+    const t = i / steps;
+    globe.setDraft({
+      west: bbox.west,
+      east: bbox.west + (bbox.east - bbox.west) * t,
+      south: bbox.north - (bbox.north - bbox.south) * t,
+      north: bbox.north,
+    });
+    await tutSimDelay(interval);
+  }
+  globe.setDraft(null);
+  await addRegion(bbox);
+}
+
+function tutShowRipple(lat: number, lng: number, color: string): void {
+  const pt = globe.map.project([lng, lat]);
+  const container = globe.map.getCanvasContainer();
+  const cRect = container.getBoundingClientRect();
+  const ripple = document.createElement("div");
+  ripple.className = "tut-ripple";
+  ripple.style.left = `${cRect.left + pt.x}px`;
+  ripple.style.top = `${cRect.top + pt.y}px`;
+  ripple.style.setProperty("--tut-ripple-color", color);
+  document.body.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 900);
+}
+
+async function tutSimulatePositive(lat: number, lng: number): Promise<void> {
+  tutShowRipple(lat, lng, "#c74633");
+  await tutSimDelay(180);
+  addPositive(lat, lng);
+}
+
+async function tutSimulateNegative(lat: number, lng: number): Promise<void> {
+  tutShowRipple(lat, lng, "#3b82f6");
+  await tutSimDelay(180);
+  addNegative(lat, lng);
+}
+
+function tutWaitForData(maxWaitMs = 35000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + maxWaitMs;
+    const poll = () => {
+      if (state.candidateRows.length > 0) { resolve(true); return; }
+      if (Date.now() > deadline) { resolve(false); return; }
+      const h = setTimeout(poll, 300);
+      _tutSimHandles.push(h);
+    };
+    poll();
+  });
+}
+
+function tutSetViewMode(mode: ViewMode): void {
+  const tab = document.querySelector<HTMLButtonElement>(`.view-tab[data-view="${mode}"]`);
+  tab?.click();
+}
+
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
     title: "Welcome to terrabit",
-    body: "terrabit finds every satellite patch on Earth that looks like a location you point at — powered by compact binary embeddings. This short tour walks you through a live search.",
+    body: "terrabit finds every satellite patch on Earth that looks like a location you point at — powered by compact binary embeddings. Watch this live demo to see how it works.",
     placement: "center",
   },
   {
-    title: "Step 1 — fly somewhere interesting",
-    body: "We've zoomed to the agricultural plains of central Kansas — a compact, high-contrast area that loads in seconds. You can search any location with the bar at the top, or spin and zoom the globe yourself.",
+    title: "Step 1 — fly to a region",
+    body: "We're zooming to the agricultural plains of central Kansas — a compact, high-contrast area that loads in seconds. Watch as terrabit draws a region and loads the embeddings.",
     placement: "center",
     onEnter: () => {
-      globe.map.flyTo({ center: [-98.35, 38.7], zoom: 10, duration: 1800 });
+      globe.map.flyTo({ center: [-98.35, 38.7], zoom: 9, duration: 1600 });
+      setTimeout(() => { void tutSimulateDraw(DEMO_BBOX); }, 1800);
     },
   },
   {
-    target: "#draw-btn",
-    title: "Step 2 — draw a small region",
-    body: "Click <strong>Draw region</strong>, then drag a box on the map — or hold <kbd>Shift</kbd> and drag anywhere. Draw as many regions as you like; terrabit searches all of them together. You can also click any preset in the AOI panel.",
-    placement: "right",
-    padding: 12,
-  },
-  {
     target: "#positive-list",
-    title: "Step 3 — click a positive exemplar",
-    body: "Once the status bar says patches are loaded, <strong>click anywhere on the map</strong> to place your first exemplar — exemplars don't need to be inside a drawn region, you can click anywhere on the globe. Try a field, a rooftop, or a road intersection. terrabit instantly scores and ranks every patch by binary similarity.",
+    title: "Step 2 — place a positive exemplar",
+    body: "Patches are loaded. We're clicking a farm field as the first exemplar — terrabit immediately scores every patch by binary Hamming distance and surfaces the closest matches worldwide.",
     placement: "right",
     padding: 8,
+    onEnter: () => {
+      void tutWaitForData().then((ready) => {
+        if (!ready || !tutorialState.active) return;
+        void tutSimulatePositive(DEMO_POS_LAT, DEMO_POS_LNG);
+      });
+    },
   },
   {
     target: "#negative-section",
-    title: "Step 4 — add a negative to refine",
-    body: "<strong>Right-click</strong> (or <strong>Shift+click</strong>) on something you want to push <em>away</em> from results — a river, a cloud, a bare lot. Negatives subtract that pattern from the query in one click.",
+    title: "Step 3 — add a negative to refine",
+    body: "We're right-clicking a different land type as a negative exemplar. Negatives push <em>away</em> from that pattern — results immediately shift to emphasize the positive and suppress the negative.",
     placement: "right",
     padding: 8,
+    onEnter: () => {
+      void tutSimulateNegative(DEMO_NEG_LAT, DEMO_NEG_LNG);
+    },
   },
   {
     target: ".view-toggle",
-    title: "Step 5 — explore view modes",
-    body: "<strong>Top-K</strong> pins the closest matches. <strong>Heat</strong> paints similarity across the whole region. <strong>Outlier</strong> surfaces unusual patches. <strong>Surprise</strong> finds tiles that don't match their geographic neighbors. <strong>Edge</strong> traces similarity boundaries.",
+    title: "Step 4 — Top-K vs Heatmap",
+    body: "<strong>Top-K</strong> shows the ranked closest matches. Watch as we switch to <strong>Heatmap</strong> — the same scores painted as a continuous similarity surface across every patch in the region.",
     placement: "right",
     padding: 10,
+    onEnter: () => {
+      setTimeout(() => {
+        if (!tutorialState.active) return;
+        tutSetViewMode("heatmap");
+        setTimeout(() => {
+          if (!tutorialState.active) return;
+          tutSetViewMode("topk");
+        }, 3000);
+      }, 800);
+    },
   },
   {
     title: "You're ready",
-    body: "Add more exemplars, flip <strong>Invert</strong> to search for opposites, adjust the Top-K slider, or export results as GeoParquet for analysis in QGIS, DuckDB, or GeoPandas.",
+    body: "Click anywhere on the globe to add your own exemplars. Add more regions, flip <strong>Invert</strong> to find opposites, or explore <strong>Outlier</strong>, <strong>Surprise</strong>, and <strong>Edge</strong> views. Export results as GeoParquet for QGIS, DuckDB, or GeoPandas.",
     placement: "center",
   },
 ];
@@ -2465,12 +2572,15 @@ function tutorialGo(step: number): void {
 }
 
 function tutorialStart(): void {
+  tutCancelSim();
+  clearAllRegions();
   tutorialState.active = true;
   tutorialState.step = 0;
   tutorialRender();
 }
 
 function tutorialStop(): void {
+  tutCancelSim();
   tutorialState.active = false;
   const overlay = document.querySelector<HTMLElement>("#tut-overlay");
   const card = document.querySelector<HTMLElement>("#tut-card");
