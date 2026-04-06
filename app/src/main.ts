@@ -309,6 +309,8 @@ function renderShell(): void {
         </header>
         <ul id="aoi-list" class="aoi-list"></ul>
       </nav>
+
+      <button id="tutorial-trigger" class="tutorial-trigger" type="button" aria-label="Open tutorial" title="Help &amp; tutorial">?</button>
     </div>
   `;
 }
@@ -1812,6 +1814,322 @@ function bootstrap(): void {
   wire();
   renderAoiPresets();
   updateView();
+  wireTutorial();
 }
 
 bootstrap();
+
+/* ================================================================ Tutorial */
+
+type TutorialPlacement = "top" | "bottom" | "left" | "right" | "center";
+
+type TutorialStep = {
+  target?: string;         // CSS selector; omit for centered card
+  title: string;
+  body: string;
+  placement?: TutorialPlacement;
+  padding?: number;        // extra glow padding around spotlight (px)
+};
+
+const TUTORIAL_STEPS: TutorialStep[] = [
+  {
+    title: "Welcome to terrabit",
+    body: "This tour walks you through searching Earth's surface using binary embeddings — a fast, compact way to find similar satellite patches.",
+    placement: "center",
+  },
+  {
+    target: "#search-wrap",
+    title: "Search anywhere",
+    body: "Type a city, park, country, or paste coordinates. The globe flies to your destination and you can define a region from there.",
+    placement: "bottom",
+    padding: 10,
+  },
+  {
+    target: "#draw-btn",
+    title: "Draw a region",
+    body: "Click <strong>Draw region</strong> then drag on the map, or hold <kbd>Shift</kbd> and drag anywhere on the globe to define your area of interest (AOI).",
+    placement: "right",
+    padding: 12,
+  },
+  {
+    target: "#aoi-nav",
+    title: "Preset regions",
+    body: "No need to draw — pick a preset AOI from this panel. Locations range from coral atolls to arctic glaciers, solar farms, and megacities.",
+    placement: "left",
+    padding: 10,
+  },
+  {
+    target: "#positive-list",
+    title: "Exemplar points",
+    body: "After loading a region, <strong>click anywhere on the map</strong> to place a positive exemplar. terrabit finds all patches with similar binary embeddings.",
+    placement: "right",
+    padding: 8,
+  },
+  {
+    target: "#negative-section",
+    title: "Negative exemplars",
+    body: "<strong>Right-click</strong> or <strong>Shift+click</strong> on the map to add negative exemplars. These actively push results <em>away</em> from unwanted features.",
+    placement: "right",
+    padding: 8,
+  },
+  {
+    target: ".view-toggle",
+    title: "View modes",
+    body: "Switch how results are displayed: <strong>Top-K</strong> ranks the best matches, <strong>Heat</strong> maps similarity across the AOI, <strong>Outlier</strong> surfaces unique patches, <strong>Surprise</strong> finds spatially unexpected tiles, <strong>Edge</strong> detects similarity boundaries, and <strong>Cutoff</strong> lets you set a distance threshold.",
+    placement: "right",
+    padding: 10,
+  },
+  {
+    target: "#combine-method",
+    title: "Combine method",
+    body: "Using multiple exemplars? Choose how their embeddings are merged: <strong>Mean</strong> averages them, <strong>AND</strong>/<strong>OR</strong>/<strong>XOR</strong> apply bitwise logic for more precise control.",
+    placement: "right",
+    padding: 10,
+  },
+  {
+    target: "#invert-toggle",
+    title: "Invert search",
+    body: "Toggle <strong>Invert</strong> to flip the query — finds patches that are the <em>opposite</em> of your exemplars. Great for contrast searches.",
+    placement: "right",
+    padding: 12,
+  },
+  {
+    target: "#fingerprint-btn",
+    title: "Region fingerprint",
+    body: "Click <strong>Find similar regions</strong> to compute a fingerprint for the entire AOI and discover other places on the globe that look like it.",
+    placement: "top",
+    padding: 12,
+  },
+  {
+    target: "#export-btn",
+    title: "Export results",
+    body: "Download your ranked results as <strong>GeoParquet</strong> — ready for analysis in QGIS, DuckDB, GeoPandas, or any geo toolchain.",
+    placement: "top",
+    padding: 12,
+  },
+  {
+    title: "You're ready to explore",
+    body: "Spin the globe, draw a region, drop some exemplars, and let binary embeddings do the rest. Happy searching.",
+    placement: "center",
+  },
+];
+
+const TUTORIAL_STORAGE_KEY = "terrabit_tutorial_seen_v1";
+
+type TutorialState = {
+  active: boolean;
+  step: number;
+};
+
+const tutorialState: TutorialState = { active: false, step: 0 };
+
+let tutorialOverlay: HTMLElement | null = null;
+let tutorialCard: HTMLElement | null = null;
+let tutorialRaf: number | null = null;
+
+function tutorialGetEl(): { overlay: HTMLElement; card: HTMLElement } {
+  if (!tutorialOverlay) {
+    tutorialOverlay = document.createElement("div");
+    tutorialOverlay.className = "tut-overlay";
+    tutorialOverlay.id = "tut-overlay";
+    document.body.appendChild(tutorialOverlay);
+  }
+  if (!tutorialCard) {
+    tutorialCard = document.createElement("div");
+    tutorialCard.className = "tut-card";
+    tutorialCard.id = "tut-card";
+    document.body.appendChild(tutorialCard);
+  }
+  return { overlay: tutorialOverlay, card: tutorialCard };
+}
+
+function tutorialPositionCard(
+  card: HTMLElement,
+  target: Element | null,
+  placement: TutorialPlacement,
+  padding: number,
+): void {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const cw = card.offsetWidth || 320;
+  const ch = card.offsetHeight || 200;
+  const margin = 18;
+
+  if (!target || placement === "center") {
+    card.style.left = `${(vw - cw) / 2}px`;
+    card.style.top = `${(vh - ch) / 2}px`;
+    return;
+  }
+
+  const r = target.getBoundingClientRect();
+  const pad = padding;
+
+  let left = 0;
+  let top = 0;
+
+  if (placement === "right") {
+    left = r.right + pad + margin;
+    top = r.top + r.height / 2 - ch / 2;
+  } else if (placement === "left") {
+    left = r.left - pad - cw - margin;
+    top = r.top + r.height / 2 - ch / 2;
+  } else if (placement === "bottom") {
+    left = r.left + r.width / 2 - cw / 2;
+    top = r.bottom + pad + margin;
+  } else {
+    // top
+    left = r.left + r.width / 2 - cw / 2;
+    top = r.top - pad - ch - margin;
+  }
+
+  // Clamp to viewport
+  left = Math.max(margin, Math.min(left, vw - cw - margin));
+  top = Math.max(margin, Math.min(top, vh - ch - margin));
+
+  card.style.left = `${left}px`;
+  card.style.top = `${top}px`;
+}
+
+function tutorialPaintShadowOverlay(overlay: HTMLElement, target: Element | null, padding: number): void {
+  if (!target) {
+    // Full dark overlay, no cutout
+    overlay.style.removeProperty("background");
+    overlay.style.setProperty("--tut-shadow-inset", "none");
+    overlay.classList.remove("has-spotlight");
+    return;
+  }
+  const r = target.getBoundingClientRect();
+  const pad = padding;
+  const rx = Math.max(0, r.left - pad);
+  const ry = Math.max(0, r.top - pad);
+  const rw = r.width + pad * 2;
+  const rh = r.height + pad * 2;
+  // Store as CSS custom props and handle via JS-driven box-shadow on the spotlight hole div
+  overlay.style.setProperty("--tut-spot-x", `${rx}px`);
+  overlay.style.setProperty("--tut-spot-y", `${ry}px`);
+  overlay.style.setProperty("--tut-spot-w", `${rw}px`);
+  overlay.style.setProperty("--tut-spot-h", `${rh}px`);
+  overlay.classList.add("has-spotlight");
+}
+
+function tutorialRender(): void {
+  const { overlay, card } = tutorialGetEl();
+  const step = TUTORIAL_STEPS[tutorialState.step];
+  if (!step) return;
+
+  const target = step.target ? document.querySelector(step.target) : null;
+  const placement = step.placement ?? "bottom";
+  const padding = step.padding ?? 10;
+  const isCenter = placement === "center" || !target;
+  const total = TUTORIAL_STEPS.length;
+  const idx = tutorialState.step;
+
+  // Paint overlay + spotlight
+  tutorialPaintShadowOverlay(overlay, isCenter ? null : target, padding);
+
+  // Build card HTML
+  const dots = Array.from({ length: total }, (_, i) =>
+    `<span class="tut-dot${i === idx ? " is-active" : ""}"></span>`
+  ).join("");
+
+  card.innerHTML = `
+    <button class="tut-dismiss" aria-label="Close tutorial" id="tut-close">✕</button>
+    <p class="tut-step-label">${idx + 1} / ${total}</p>
+    <h3 class="tut-title">${step.title}</h3>
+    <p class="tut-body">${step.body}</p>
+    <div class="tut-dots">${dots}</div>
+    <div class="tut-actions">
+      <button class="tut-btn tut-btn-ghost" id="tut-skip" type="button">Skip tour</button>
+      <div class="tut-nav">
+        ${idx > 0 ? `<button class="tut-btn tut-btn-secondary" id="tut-back" type="button">← Back</button>` : ""}
+        ${idx < total - 1
+          ? `<button class="tut-btn tut-btn-primary" id="tut-next" type="button">Next →</button>`
+          : `<button class="tut-btn tut-btn-primary" id="tut-done" type="button">Get started</button>`}
+      </div>
+    </div>
+  `;
+
+  // Make visible
+  overlay.classList.add("is-active");
+  card.classList.add("is-active");
+
+  // Position card after paint (need dimensions)
+  requestAnimationFrame(() => {
+    tutorialPositionCard(card, isCenter ? null : target, placement, padding);
+  });
+
+  // Wire card buttons
+  card.querySelector("#tut-close")?.addEventListener("click", tutorialStop);
+  card.querySelector("#tut-skip")?.addEventListener("click", tutorialStop);
+  card.querySelector("#tut-back")?.addEventListener("click", () => tutorialGo(idx - 1));
+  card.querySelector("#tut-next")?.addEventListener("click", () => tutorialGo(idx + 1));
+  card.querySelector("#tut-done")?.addEventListener("click", tutorialStop);
+}
+
+function tutorialGo(step: number): void {
+  tutorialState.step = Math.max(0, Math.min(step, TUTORIAL_STEPS.length - 1));
+  // Fade out card, then re-render
+  const card = document.querySelector<HTMLElement>("#tut-card");
+  const overlay = document.querySelector<HTMLElement>("#tut-overlay");
+  if (card) {
+    card.classList.add("is-transitioning");
+    if (overlay) overlay.classList.add("is-transitioning");
+    if (tutorialRaf) cancelAnimationFrame(tutorialRaf);
+    tutorialRaf = requestAnimationFrame(() => {
+      tutorialRaf = requestAnimationFrame(() => {
+        card.classList.remove("is-transitioning");
+        if (overlay) overlay.classList.remove("is-transitioning");
+        tutorialRender();
+      });
+    });
+  } else {
+    tutorialRender();
+  }
+}
+
+function tutorialStart(): void {
+  tutorialState.active = true;
+  tutorialState.step = 0;
+  tutorialRender();
+}
+
+function tutorialStop(): void {
+  tutorialState.active = false;
+  localStorage.setItem(TUTORIAL_STORAGE_KEY, "1");
+  const overlay = document.querySelector<HTMLElement>("#tut-overlay");
+  const card = document.querySelector<HTMLElement>("#tut-card");
+  if (overlay) overlay.classList.remove("is-active", "has-spotlight", "is-transitioning");
+  if (card) card.classList.remove("is-active", "is-transitioning");
+}
+
+function wireTutorial(): void {
+  const btn = document.querySelector<HTMLButtonElement>("#tutorial-trigger");
+  btn?.addEventListener("click", tutorialStart);
+
+  // Auto-show on first visit
+  if (!localStorage.getItem(TUTORIAL_STORAGE_KEY)) {
+    // Small delay so the app finishes rendering
+    setTimeout(tutorialStart, 900);
+  }
+
+  // Esc to close
+  window.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && tutorialState.active) tutorialStop();
+  });
+
+  // Click overlay to advance / close
+  document.addEventListener("click", (ev) => {
+    if (!tutorialState.active) return;
+    const overlay = document.querySelector<HTMLElement>("#tut-overlay");
+    const card = document.querySelector<HTMLElement>("#tut-card");
+    const t = ev.target as Node;
+    if (overlay && overlay === t) {
+      // click on dark area → advance or close
+      const next = tutorialState.step + 1;
+      if (next < TUTORIAL_STEPS.length) tutorialGo(next);
+      else tutorialStop();
+    }
+    // ignore clicks inside card (handled by card buttons)
+    if (card && card.contains(t)) return;
+  });
+}
