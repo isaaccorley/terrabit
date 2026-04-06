@@ -169,7 +169,7 @@ function renderShell(): void {
                 <span class="panel-kicker">03 · Retrieval</span>
 
               </div>
-              <span id="result-count" class="result-summary">Awaiting region</span>
+              <span id="result-count" class="result-summary"></span>
             </header>
 
             <div class="view-toggle" role="tablist" aria-label="Result view">
@@ -578,8 +578,8 @@ function updateView(): void {
 
   if (e.resultCount) {
     const needsExemplars = state.viewMode !== "outlier";
-    if (!state.candidateRows.length) e.resultCount.textContent = "Awaiting region";
-    else if (needsExemplars && !state.positivePoints.length) e.resultCount.textContent = "Awaiting exemplar";
+    if (!state.candidateRows.length) e.resultCount.textContent = "";
+    else if (needsExemplars && !state.positivePoints.length) e.resultCount.textContent = "";
     else if (state.viewMode === "threshold")
       e.resultCount.textContent = `${visible.length} / ${new Intl.NumberFormat().format(activeResults.length)} within cutoff`;
     else if (state.viewMode === "topk")
