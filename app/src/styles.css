@@ -845,19 +845,12 @@ button { cursor: pointer; border: 0; background: none; }
   background: rgba(14, 11, 8, 0.4);
 }
 .view-tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 6px 2px;
-  border-radius: 6px;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 8px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border-radius: 7px;
   color: var(--muted);
   transition: background 180ms, color 180ms, box-shadow 180ms;
-  white-space: nowrap;
 }
 .view-tab:hover { color: var(--muted-strong); }
 .view-tab svg { opacity: 0.75; }
