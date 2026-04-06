@@ -43,6 +43,7 @@ type AppState = {
   positivePoints: PositivePoint[];
   negativePoints: NegativePoint[];
   positiveMatches: PositiveMatch[];
+  baseResults: RankedRow[];
   results: RankedRow[];
   outlierResults: RankedRow[];
   outlierComputed: boolean;
@@ -68,6 +69,7 @@ const state: AppState = {
   positivePoints: [],
   negativePoints: [],
   positiveMatches: [],
+  baseResults: [],
   results: [],
   outlierResults: [],
   outlierComputed: false,
@@ -1084,9 +1086,19 @@ function maybeInvertEmbedding(emb: Uint8Array): Uint8Array {
   return inv;
 }
 
+// Derive inverted results from cached base (non-inverted) scores without re-scoring.
+// For no negatives: score_inv = L - score (hamming complement). With negatives: score_inv = -score.
+// Both cases produce reversed sort order.
+function applyInvert(base: RankedRow[]): RankedRow[] {
+  if (!state.invertSearch || !base.length) return base;
+  const hasNeg = state.negativePoints.length > 0;
+  const L = base[0].embedding.length * 8;
+  return [...base].map(r => ({ ...r, score: hasNeg ? -r.score : L - r.score })).reverse();
+}
+
 function resolveNegativeEmbeddings(): Uint8Array[] {
   return state.negativePoints.flatMap((point) => {
-    if (point.embedding) return [maybeInvertEmbedding(point.embedding)];
+    if (point.embedding) return [point.embedding];
     const intersecting = state.candidateRows.filter((c) => containsPoint(c.bbox, point.lat, point.lng));
     if (!intersecting.length) return [];
     let best = intersecting[0];
@@ -1096,7 +1108,7 @@ function resolveNegativeEmbeddings(): Uint8Array[] {
       const d = distanceSquared(point.lat, point.lng, c.lat, c.lng);
       if (d < bestD) { bestD = d; best = option; }
     }
-    return [maybeInvertEmbedding(best.embedding)];
+    return [best.embedding];
   });
 }
 
@@ -1105,7 +1117,7 @@ async function scoreWithWorker(exemplars: CandidateRow[]): Promise<RankedRow[]> 
   const worker = ensureScoringWorker();
   const requestId = ++scoringRequestId;
   const excludeIndices = new Set(exemplars.map((ex) => state.candidateRows.indexOf(ex)).filter((i) => i >= 0));
-  let posEmbeddings = exemplars.map((ex) => maybeInvertEmbedding(new Uint8Array(ex.embedding)));
+  let posEmbeddings = exemplars.map((ex) => new Uint8Array(ex.embedding));
   posEmbeddings = combineEmbeddings(posEmbeddings, state.combineMethod);
   const negEmbeddings = resolveNegativeEmbeddings();
   const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
@@ -1181,6 +1193,7 @@ async function scoreCandidates(): Promise<void> {
 
   if (!state.candidateRows.length || !state.positivePoints.length) {
     state.positiveMatches = [];
+    state.baseResults = [];
     state.results = [];
     globe.setPositiveMatches([]);
     globe.setResults([], state.topK, state.viewMode);
@@ -1194,6 +1207,7 @@ async function scoreCandidates(): Promise<void> {
   globe.setPositiveMatches(state.positiveMatches);
 
   if (!exemplars.length) {
+    state.baseResults = [];
     state.results = [];
     globe.setResults([], state.topK, state.viewMode);
     setStatus("No patch under the selected point — try closer to a tile center.");
@@ -1203,7 +1217,8 @@ async function scoreCandidates(): Promise<void> {
   setStatus(`Scoring ${new Intl.NumberFormat().format(state.candidateRows.length)} candidates…`);
   const scored = await scoreWithWorker(exemplars);
   if (runId !== latestScoreRunId) return;
-  state.results = scored;
+  state.baseResults = scored;
+  state.results = applyInvert(scored);
   if (state.overlayVisible) globe.setResults(scored, state.topK, state.viewMode);
   setStatus(`Ranked ${scored.length} candidates against ${exemplars.length} exemplar(s).`);
   updateView();
@@ -1598,6 +1613,7 @@ async function addRegion(bbox: BBox): Promise<void> {
   state.loading = true;
   // Clear derived results so stale overlay doesn't linger
   resetComputeState();
+  state.baseResults = [];
   state.results = [];
   state.outlierResults = [];
   state.outlierComputed = false;
@@ -1685,6 +1701,7 @@ function removeRegion(id: number): void {
   regionLoadRunIds.delete(id);
   resetComputeState();
   state.candidateRows = [...state.regionRows.values()].flat();
+  state.baseResults = [];
   state.results = [];
   state.outlierResults = [];
   state.outlierComputed = false;
@@ -1804,26 +1821,36 @@ function addPositive(lat: number, lng: number): void {
     void scoreCandidates(); // returns early + shows "queued N exemplar(s)" status
     updateView();
   } else {
-    // External exemplar — fetch embedding from remote parquet
+    // External exemplar — show dot immediately, fetch embedding in background
+    const placeholderId = state.positivePoints.length + 1;
+    state.positivePoints.push({ id: placeholderId, lat, lng });
+    globe.setPositives(state.positivePoints);
     setStatus("Fetching external exemplar embedding…");
     updateView();
     void fetchExternalEmbedding(lat, lng).then((row) => {
       if (!row) {
+        // Remove placeholder
+        state.positivePoints = state.positivePoints.filter((p) => p.id !== placeholderId);
+        globe.setPositives(state.positivePoints);
         setStatus("No patch found at that location.");
+        updateView();
         return;
       }
       // Deduplicate by chips_id
       const existing = state.positivePoints.some((p) => p.embedding && p.chips_id === row.chips_id);
       if (existing) {
+        state.positivePoints = state.positivePoints.filter((p) => p.id !== placeholderId);
+        globe.setPositives(state.positivePoints);
         setStatus("That patch is already selected.");
+        updateView();
         return;
       }
-      state.positivePoints.push({
-        id: state.positivePoints.length + 1,
-        lat, lng,
-        embedding: row.embedding,
-        chips_id: row.chips_id,
-      });
+      // Update placeholder in-place with embedding
+      const placeholder = state.positivePoints.find((p) => p.id === placeholderId);
+      if (placeholder) {
+        placeholder.embedding = row.embedding;
+        placeholder.chips_id = row.chips_id;
+      }
       globe.setPositives(state.positivePoints);
       void scoreCandidates();
       updateView();
@@ -1855,25 +1882,33 @@ function addNegative(lat: number, lng: number): void {
     void scoreCandidates();
     updateView();
   } else {
-    // Outside AOI — fetch embedding externally
+    // Outside AOI — show dot immediately, fetch embedding in background
+    const placeholderId = state.negativePoints.length + 1;
+    state.negativePoints.push({ id: placeholderId, lat, lng });
+    globe.setNegatives(state.negativePoints);
     setStatus("Fetching external negative embedding…");
     updateView();
     void fetchExternalEmbedding(lat, lng).then((row) => {
       if (!row) {
+        state.negativePoints = state.negativePoints.filter((p) => p.id !== placeholderId);
+        globe.setNegatives(state.negativePoints);
         setStatus("No patch found at that location.");
+        updateView();
         return;
       }
       const existing = state.negativePoints.some((p) => p.embedding && p.chips_id === row.chips_id);
       if (existing) {
+        state.negativePoints = state.negativePoints.filter((p) => p.id !== placeholderId);
+        globe.setNegatives(state.negativePoints);
         setStatus("That patch is already a negative.");
+        updateView();
         return;
       }
-      state.negativePoints.push({
-        id: state.negativePoints.length + 1,
-        lat, lng,
-        embedding: row.embedding,
-        chips_id: row.chips_id,
-      });
+      const placeholder = state.negativePoints.find((p) => p.id === placeholderId);
+      if (placeholder) {
+        placeholder.embedding = row.embedding;
+        placeholder.chips_id = row.chips_id;
+      }
       globe.setNegatives(state.negativePoints);
       void scoreCandidates();
       updateView();
@@ -1898,6 +1933,7 @@ function clearPoints(): void {
   lastResultListKey = "";
   gradientComputing = false;
   state.positiveMatches = [];
+  state.baseResults = [];
   state.results = [];
   state.gradientResults = [];
   globe.setPositives([]);
@@ -1923,6 +1959,7 @@ function clearAllRegions(): void {
   state.negativePoints = [];
   state.positiveMatches = [];
   resetComputeState();
+  state.baseResults = [];
   state.results = [];
   state.topK = DEFAULT_TOP_K;
   state.viewMode = "topk";
@@ -2047,10 +2084,16 @@ function wire(): void {
     });
   });
 
-  // Invert toggle
+  // Invert toggle — derive from cached base results, no re-scoring needed
   e.invertToggle?.addEventListener("click", () => {
     state.invertSearch = !state.invertSearch;
-    void scoreCandidates();
+    if (state.baseResults.length) {
+      state.results = applyInvert(state.baseResults);
+      state.threshold = Infinity;
+      if (state.overlayVisible) globe.setResults(state.results, state.topK, state.viewMode);
+    } else {
+      void scoreCandidates();
+    }
     updateView();
   });
 
@@ -2175,82 +2218,26 @@ type TutorialStep = {
 const TUTORIAL_STEPS: TutorialStep[] = [
   {
     title: "Welcome to terrabit",
-    body: "This tour walks you through searching Earth's surface using binary embeddings — a fast, compact way to find similar satellite patches.",
+    body: "Search Earth's surface using binary embeddings — point at a patch of land, and terrabit finds everywhere that looks like it.",
     placement: "center",
   },
   {
-    target: "#search-wrap",
-    title: "Search anywhere",
-    body: "Type a city, park, country, or paste coordinates. The globe flies to your destination and you can define a region from there.",
-    placement: "bottom",
-    padding: 10,
-  },
-  {
-    target: "#draw-btn",
-    title: "Draw a region",
-    body: "Click <strong>Draw region</strong> then drag on the map, or hold <kbd>Shift</kbd> and drag anywhere on the globe to define your area of interest (AOI).",
-    placement: "right",
-    padding: 12,
-  },
-  {
     target: "#aoi-nav",
-    title: "Preset regions",
-    body: "No need to draw — pick a preset AOI from this panel. Locations range from coral atolls to arctic glaciers, solar farms, and megacities.",
+    title: "Pick or draw a region",
+    body: "Select a preset AOI from this panel, <em>or</em> use the search bar to fly to any location and click <strong>Draw region</strong> to define your own area.",
     placement: "left",
     padding: 10,
   },
   {
     target: "#positive-list",
-    title: "Exemplar points",
-    body: "After loading a region, <strong>click anywhere on the map</strong> to place a positive exemplar. terrabit finds all patches with similar binary embeddings.",
+    title: "Place exemplars to search",
+    body: "<strong>Click</strong> anywhere on the map to mark a positive exemplar — terrabit scores every patch by similarity. <strong>Right-click</strong> (or <strong>Shift+click</strong>) to add negatives that push unwanted features away.",
     placement: "right",
     padding: 8,
   },
   {
-    target: "#negative-section",
-    title: "Negative exemplars",
-    body: "<strong>Right-click</strong> or <strong>Shift+click</strong> on the map to add negative exemplars. These actively push results <em>away</em> from unwanted features.",
-    placement: "right",
-    padding: 8,
-  },
-  {
-    target: ".view-toggle",
-    title: "View modes",
-    body: "Switch how results are displayed: <strong>Top-K</strong> ranks the best matches, <strong>Heat</strong> maps similarity across the AOI, <strong>Outlier</strong> surfaces unique patches, <strong>Surprise</strong> finds spatially unexpected tiles, <strong>Edge</strong> detects similarity boundaries, and <strong>Cutoff</strong> lets you set a distance threshold.",
-    placement: "right",
-    padding: 10,
-  },
-  {
-    target: "#combine-method",
-    title: "Combine method",
-    body: "Using multiple exemplars? Choose how their embeddings are merged: <strong>Mean</strong> averages them, <strong>AND</strong>/<strong>OR</strong>/<strong>XOR</strong> apply bitwise logic for more precise control.",
-    placement: "right",
-    padding: 10,
-  },
-  {
-    target: "#invert-toggle",
-    title: "Invert search",
-    body: "Toggle <strong>Invert</strong> to flip the query — finds patches that are the <em>opposite</em> of your exemplars. Great for contrast searches.",
-    placement: "right",
-    padding: 12,
-  },
-  {
-    target: "#fingerprint-btn",
-    title: "Region fingerprint",
-    body: "Click <strong>Find similar regions</strong> to compute a fingerprint for the entire AOI and discover other places on the globe that look like it.",
-    placement: "top",
-    padding: 12,
-  },
-  {
-    target: "#export-btn",
-    title: "Export results",
-    body: "Download your ranked results as <strong>GeoParquet</strong> — ready for analysis in QGIS, DuckDB, GeoPandas, or any geo toolchain.",
-    placement: "top",
-    padding: 12,
-  },
-  {
-    title: "You're ready to explore",
-    body: "Spin the globe, draw a region, drop some exemplars, and let binary embeddings do the rest. Happy searching.",
+    title: "That's it — go explore",
+    body: "Results update instantly. Switch view modes, add more exemplars, or try <strong>Find similar regions</strong> to discover places elsewhere on the globe that look the same.",
     placement: "center",
   },
 ];
