@@ -212,27 +212,27 @@ function renderShell(): void {
             </header>
 
             <div class="view-toggle" role="tablist" aria-label="Result view">
-              <button data-view="topk" class="view-tab is-active" type="button" role="tab" title="Top-K" aria-label="Top-K ranked list">
+              <button data-view="topk" class="view-tab is-active" type="button" role="tab" title="Top-K — Ranked list of most similar patches" aria-label="Top-K ranked list">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="3" width="12" height="3" rx="0.6"/><rect x="2" y="7" width="9" height="3" rx="0.6"/><rect x="2" y="11" width="5" height="3" rx="0.6"/></svg>
                 <span class="view-label">Top-K</span>
               </button>
-              <button data-view="heatmap" class="view-tab" type="button" role="tab" title="Heatmap" aria-label="Heatmap of all scored tiles">
+              <button data-view="heatmap" class="view-tab" type="button" role="tab" title="Heatmap — Continuous similarity surface across all patches" aria-label="Heatmap of all scored tiles">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="2" width="4" height="4"/><rect x="6" y="2" width="4" height="4"/><rect x="10" y="2" width="4" height="4"/><rect x="2" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="10" y="6" width="4" height="4"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/></svg>
                 <span class="view-label">Heat</span>
               </button>
-<button data-view="outlier" class="view-tab" type="button" role="tab" title="Outlier" aria-label="Most unique patches">
+<button data-view="outlier" class="view-tab" type="button" role="tab" title="Outlier — Find the most unique and unusual patches in the region" aria-label="Most unique patches">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="2"/><circle cx="4" cy="6" r="1.2"/><circle cx="12" cy="5" r="1.2"/><circle cx="13" cy="11" r="1.2"/><circle cx="3" cy="12" r="1.2"/></svg>
                 <span class="view-label">Outlier</span>
               </button>
-              <button data-view="threshold" class="view-tab" type="button" role="tab" title="Cutoff" aria-label="Distance cutoff">
+              <button data-view="threshold" class="view-tab" type="button" role="tab" title="Cutoff — Show all patches within a Hamming distance threshold" aria-label="Distance cutoff">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="10" width="2" height="4"/><rect x="5" y="6" width="2" height="8"/><rect x="8" y="3" width="2" height="11"/><rect x="11" y="8" width="2" height="6"/><line x1="1" y1="7" x2="15" y2="7" stroke-dasharray="2 1.5"/></svg>
                 <span class="view-label">Cutoff</span>
               </button>
-              <button data-view="surprise" class="view-tab" type="button" role="tab" title="Surprise" aria-label="Spatial surprise">
+              <button data-view="surprise" class="view-tab" type="button" role="tab" title="Surprise — Patches that look different from their geographic neighbors" aria-label="Spatial surprise">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 2v7"/><circle cx="8" cy="12.5" r="1.5"/></svg>
                 <span class="view-label">Surprise</span>
               </button>
-              <button data-view="gradient" class="view-tab" type="button" role="tab" title="Edge" aria-label="Similarity gradient edge detection">
+              <button data-view="gradient" class="view-tab" type="button" role="tab" title="Edge — Detect boundaries where similarity scores change sharply" aria-label="Similarity gradient edge detection">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 14L8 2l6 12"/><line x1="4" y1="10" x2="12" y2="10"/></svg>
                 <span class="view-label">Edge</span>
               </button>
@@ -2114,9 +2114,14 @@ function wireTutorial(): void {
   // Always show tutorial on start
   setTimeout(tutorialStart, 900);
 
-  // Esc to close
+  // Esc to close, Enter to advance
   window.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape" && tutorialState.active) tutorialStop();
+    if (ev.key === "Enter" && tutorialState.active) {
+      const next = tutorialState.step + 1;
+      if (next < TUTORIAL_STEPS.length) tutorialGo(next);
+      else tutorialStop();
+    }
   });
 
   // Click overlay to advance / close
