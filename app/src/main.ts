@@ -495,7 +495,7 @@ function updateView(): void {
   e.statusPill?.classList.toggle("is-busy", state.loading);
 
   const armed = globe?.isArmed() ?? false;
-  e.drawLabel.textContent = armed ? "Drawing…" : state.bbox ? "Redraw region" : "Draw region";
+  e.drawLabel.textContent = armed ? "Drawing…" : "Draw region";
   e.drawBtn.classList.toggle("is-armed", armed);
 
   if (e.mShards) e.mShards.textContent = state.manifestShards.length ? String(state.manifestShards.length) : "—";
@@ -992,7 +992,7 @@ async function loadRegion(bbox: BBox): Promise<void> {
     }
 
     setStatus(`Loading patches from ${shards.length} shard(s)…`);
-    globe.flyToBBox(bbox, { zoom: pickZoomForBBox(bbox) });
+    globe.fitBounds(bbox, { padding: 60 });
 
     // Query each shard in parallel with bounded concurrency. This is much more
     // reliable than a single read_parquet([url1, url2, ...]) call — one slow or
