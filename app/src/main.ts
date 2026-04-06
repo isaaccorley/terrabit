@@ -138,7 +138,7 @@ function renderShell(): void {
 
       <section class="hud-panel hud-panel-left" id="query-panel">
         <header class="panel-head">
-          <span class="panel-kicker">01 · Query</span>
+          <span class="panel-kicker">Query</span>
         </header>
         <div class="draw-row">
           <button id="draw-btn" class="btn btn-sm btn-primary" type="button">
@@ -146,7 +146,6 @@ function renderShell(): void {
             <span id="draw-label">Draw region</span>
           </button>
           <button id="clear-region-btn" class="btn btn-sm btn-ghost" type="button">Clear region</button>
-          <button id="clear-points-btn2" class="btn btn-sm btn-ghost" type="button">Clear points</button>
         </div>
         <div class="meta-row">
           <div class="meta-cell">
@@ -167,7 +166,7 @@ function renderShell(): void {
           <div class="sub-card">
             <header class="sub-head">
               <div>
-                <span class="panel-kicker">02 · Exemplars</span>
+                <span class="panel-kicker">Exemplars</span>
               </div>
               <div class="sub-head-actions">
                 <button id="invert-toggle" class="icon-btn" type="button" title="Invert search (find opposites)" aria-label="Invert search">
@@ -200,7 +199,7 @@ function renderShell(): void {
           <div class="sub-card sub-card-retrieval">
             <header class="sub-head sub-head-stack">
               <div>
-                <span class="panel-kicker">03 · Retrieval</span>
+                <span class="panel-kicker">Retrieval</span>
 
               </div>
               <div class="sub-head-actions">
@@ -293,14 +292,16 @@ function renderShell(): void {
             </div>
 
             <ol id="result-list" class="result-list"></ol>
-            <button id="export-btn" class="btn btn-sm btn-ghost btn-export" type="button" hidden>
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 11v3h12v-3"/><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/></svg>
-              <span>Export GeoParquet</span>
-            </button>
-            <button id="fingerprint-btn" class="btn btn-sm btn-ghost btn-export" type="button" hidden>
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 0 1 0 12"/><path d="M8 5a3 3 0 0 1 0 6"/></svg>
-              <span>Find similar regions</span>
-            </button>
+            <div class="action-row">
+              <button id="export-btn" class="btn btn-sm btn-ghost action-btn" type="button" hidden>
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 11v3h12v-3"/><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/></svg>
+                <span>Export</span>
+              </button>
+              <button id="fingerprint-btn" class="btn btn-sm btn-ghost action-btn" type="button" hidden>
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 0 1 0 12"/><path d="M8 5a3 3 0 0 1 0 6"/></svg>
+                <span>Find similar</span>
+              </button>
+            </div>
             <div id="fingerprint-results" class="fingerprint-results" hidden></div>
           </div>
         </div>
@@ -338,7 +339,6 @@ function els() {
     drawBtn: document.querySelector<HTMLButtonElement>("#draw-btn"),
     drawLabel: document.querySelector<HTMLElement>("#draw-label"),
     clearRegionBtn: document.querySelector<HTMLButtonElement>("#clear-region-btn"),
-    clearPointsBtn2: document.querySelector<HTMLButtonElement>("#clear-points-btn2"),
     mShards: document.querySelector<HTMLElement>("#m-shards"),
     mPatches: document.querySelector<HTMLElement>("#m-patches"),
     mRoi: document.querySelector<HTMLElement>("#m-roi"),
@@ -825,7 +825,6 @@ function updateView(): void {
           <span class="rank">${String(i + 1).padStart(2, "0")}</span>
           <span class="rank-body">
             <span class="rank-coord">${formatLatLng(c.lat, c.lng)}</span>
-            <span class="rank-chip">${r.chips_id}</span>
           </span>
           <span class="rank-score">${r.score.toFixed(1)}</span>
         </button>
@@ -1735,7 +1734,6 @@ function wire(): void {
   });
   e.clearRegionBtn?.addEventListener("click", clearRegion);
   e.clearPointsBtn?.addEventListener("click", clearPoints);
-  e.clearPointsBtn2?.addEventListener("click", clearPoints);
   e.exportBtn?.addEventListener("click", () => void exportGeoParquet());
   e.overlayToggle?.addEventListener("click", () => {
     state.overlayVisible = !state.overlayVisible;
@@ -1787,19 +1785,25 @@ function wire(): void {
         void computeOutliers();
       } else if (mode === "outlier") {
         globe.setResults(state.outlierResults, state.topK, mode);
+        setStatus(`Outlier view — ${state.outlierResults.length} patches scored. Brightest = most unique.`);
       } else if (mode === "surprise" && !state.surpriseComputed) {
         void computeSurprise();
       } else if (mode === "surprise") {
         globe.setResults(state.surpriseResults, state.topK, mode);
+        setStatus(`Surprise view — ${state.surpriseResults.length} patches scored. Brightest = most spatially anomalous.`);
       } else if (mode === "gradient") {
         if (state.results.length) {
           void computeGradient();
+        } else {
+          setStatus("Edge view — add exemplars first to compute similarity gradients.");
         }
       } else if (mode === "threshold") {
         const filtered = state.results.filter((r) => r.score <= state.threshold);
         globe.setResults(filtered, filtered.length, mode);
+        setStatus(`Cutoff view — adjust the threshold slider to filter patches by distance.`);
       } else {
         globe.setResults(state.results, state.topK, mode);
+        if (state.results.length) setStatus(`Top-K view — showing ${Math.min(state.topK, state.results.length)} of ${state.results.length} ranked patches.`);
       }
       updateView();
     });

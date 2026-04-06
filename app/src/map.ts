@@ -368,7 +368,7 @@ export class GlobeMap {
       const features = list.map((r, i) => {
         const t = n > 1 ? i / (n - 1) : 0;
         const color = useColor ? interpolatePlasma(t) : "#d0542c";
-        const fillOpacity = useColor ? 0.38 - t * 0.22 : 0.18 - t * 0.1;
+        const fillOpacity = useColor ? 0.28 - t * 0.14 : 0.18 - t * 0.1;
         const lineWidth = useColor ? 0.6 : 1.4;
         return bboxToPolygon(r.bbox, {
           chipsId: r.chips_id,
