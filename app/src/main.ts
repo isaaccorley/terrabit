@@ -291,12 +291,13 @@ type AoiPreset = { name: string; tag: string; bbox: BBox };
 
 const AOI_PRESETS: AoiPreset[] = [
   { name: "Malé Atoll", tag: "coral atoll", bbox: { west: 73.35, south: 4.05, east: 73.7, north: 4.35 } },
+  { name: "Rotterdam", tag: "port", bbox: { west: 3.85, south: 51.85, east: 4.35, north: 52.05 } },
+  { name: "Atacama", tag: "lithium mines", bbox: { west: -68.6, south: -23.8, east: -67.8, north: -23.1 } },
   { name: "Center pivots", tag: "agriculture", bbox: { west: 37.2, south: 29.0, east: 39.0, north: 30.2 } },
   { name: "Palm Islands", tag: "coastal eng.", bbox: { west: 54.95, south: 25.05, east: 55.25, north: 25.2 } },
   { name: "Bhadla Solar", tag: "solar farm", bbox: { west: 71.6, south: 27.3, east: 72.1, north: 27.65 } },
   { name: "Rondônia", tag: "deforestation", bbox: { west: -63.5, south: -11.0, east: -62.5, north: -10.0 } },
   { name: "Kansas Grid", tag: "cropland", bbox: { west: -101.0, south: 37.6, east: -100.0, north: 38.4 } },
-  { name: "Rotterdam", tag: "port", bbox: { west: 3.85, south: 51.85, east: 4.35, north: 52.05 } },
   { name: "Hartsfield ATL", tag: "airport", bbox: { west: -84.55, south: 33.55, east: -84.35, north: 33.7 } },
   { name: "Pilbara Mines", tag: "mining", bbox: { west: 117.6, south: -22.8, east: 118.8, north: -21.8 } },
   { name: "Venice Lagoon", tag: "lagoon", bbox: { west: 12.15, south: 45.3, east: 12.55, north: 45.55 } },
@@ -314,7 +315,6 @@ const AOI_PRESETS: AoiPreset[] = [
   { name: "Las Vegas", tag: "desert city", bbox: { west: -115.35, south: 36.0, east: -114.95, north: 36.3 } },
   { name: "Namib Dunes", tag: "sand dunes", bbox: { west: 14.8, south: -24.8, east: 15.6, north: -24.0 } },
   { name: "Three Gorges", tag: "dam/reservoir", bbox: { west: 110.8, south: 30.7, east: 111.4, north: 31.1 } },
-  { name: "Atacama", tag: "lithium mines", bbox: { west: -68.6, south: -23.8, east: -67.8, north: -23.1 } },
   { name: "Svalbard", tag: "arctic coast", bbox: { west: 14.5, south: 78.0, east: 16.5, north: 78.5 } },
   { name: "Aral Sea", tag: "dried lake", bbox: { west: 58.0, south: 44.5, east: 59.5, north: 45.5 } },
   { name: "Great Reef", tag: "coral reef", bbox: { west: 145.6, south: -16.8, east: 146.4, north: -16.2 } },
@@ -556,15 +556,16 @@ function updateView(): void {
   // Exemplar list
   e.positiveList.innerHTML = "";
   if (!state.positivePoints.length) {
-    e.positiveList.innerHTML = `<li class="empty">No exemplars yet — click inside the AOI to seed the search.</li>`;
+    e.positiveList.innerHTML = `<li class="empty">No exemplars yet — click anywhere on the map to seed the search.</li>`;
   } else {
     for (const [i, p] of state.positivePoints.entries()) {
       const li = document.createElement("li");
       li.className = "exemplar-item";
       li.style.setProperty("--i", String(i));
+      const isExternal = Boolean(p.embedding);
       li.innerHTML = `
         <button type="button" data-pid="${p.id}">
-          <span class="ex-index">E${String(p.id).padStart(2, "0")}</span>
+          <span class="ex-index">${isExternal ? "⊕" : "E"}${String(p.id).padStart(2, "0")}</span>
           <span class="ex-coord">${formatLatLng(p.lat, p.lng)}</span>
           <span class="ex-remove" aria-hidden="true">×</span>
         </button>
@@ -572,14 +573,20 @@ function updateView(): void {
       e.positiveList.appendChild(li);
     }
     e.positiveList.querySelectorAll<HTMLButtonElement>("button[data-pid]").forEach((b) => {
-      b.addEventListener("click", () => {
+      b.addEventListener("click", (ev) => {
+        const target = ev.target as HTMLElement;
         const pid = Number(b.dataset.pid);
-        state.positivePoints = state.positivePoints
-          .filter((p) => p.id !== pid)
-          .map((p, idx) => ({ ...p, id: idx + 1 }));
-        globe.setPositives(state.positivePoints);
-        void scoreCandidates();
-        updateView();
+        if (target.closest(".ex-remove")) {
+          state.positivePoints = state.positivePoints
+            .filter((p) => p.id !== pid)
+            .map((p, idx) => ({ ...p, id: idx + 1 }));
+          globe.setPositives(state.positivePoints);
+          void scoreCandidates();
+          updateView();
+        } else {
+          const pt = state.positivePoints.find((p) => p.id === pid);
+          if (pt) globe.map.flyTo({ center: [pt.lng, pt.lat], zoom: 13 });
+        }
       });
     });
   }
@@ -762,7 +769,7 @@ async function scoreWithWorker(exemplars: CandidateRow[]): Promise<RankedRow[]> 
   if (!scoringWorkerReady) return [];
   const worker = ensureScoringWorker();
   const requestId = ++scoringRequestId;
-  const excludeIndices = new Set(exemplars.map((ex) => state.candidateRows.indexOf(ex)));
+  const excludeIndices = new Set(exemplars.map((ex) => state.candidateRows.indexOf(ex)).filter((i) => i >= 0));
   const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
     const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
       if (event.data.type !== "score-result" || event.data.requestId !== requestId) return;
@@ -790,6 +797,18 @@ async function scoreWithWorker(exemplars: CandidateRow[]): Promise<RankedRow[]> 
 
 function resolvePositiveMatches(): PositiveMatch[] {
   return state.positivePoints.flatMap((point) => {
+    // External exemplar — already has its embedding
+    if (point.embedding && point.chips_id) {
+      return [{
+        pointId: point.id,
+        candidate: {
+          chips_id: point.chips_id,
+          bbox: { west: point.lng - 0.005, south: point.lat - 0.005, east: point.lng + 0.005, north: point.lat + 0.005 },
+          embedding: point.embedding,
+          shard_path: "",
+        },
+      }];
+    }
     const intersecting = state.candidateRows.filter((c) => containsPoint(c.bbox, point.lat, point.lng));
     if (!intersecting.length) return [];
     let best = intersecting[0];
@@ -989,8 +1008,10 @@ async function exportGeoParquet(): Promise<void> {
 async function loadRegion(bbox: BBox): Promise<void> {
   const runId = ++latestLoadRunId;
   // Clear old state IMMEDIATELY so the user never sees stale data when redrawing.
+  // Preserve external exemplars (those with their own embedding) across region changes.
   state.bbox = bbox;
-  state.positivePoints = [];
+  const externalExemplars = state.positivePoints.filter((p) => p.embedding);
+  state.positivePoints = externalExemplars.map((p, i) => ({ ...p, id: i + 1 }));
   state.positiveMatches = [];
   state.results = [];
   state.outlierResults = [];
@@ -1000,7 +1021,7 @@ async function loadRegion(bbox: BBox): Promise<void> {
   state.manifestShards = [];
   state.loading = true;
   globe.setAoi(bbox);
-  globe.setPositives([]);
+  globe.setPositives(state.positivePoints);
   globe.setPositiveMatches([]);
   globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
@@ -1053,7 +1074,7 @@ async function loadRegion(bbox: BBox): Promise<void> {
     initScoringWorker(state.candidateRows);
     state.loading = false;
     const base = state.candidateRows.length
-      ? `Region loaded — ${new Intl.NumberFormat().format(state.candidateRows.length)} patches from ${shards.length - failed.length}/${shards.length} shards. Click inside the AOI to seed an exemplar.`
+      ? `Region loaded — ${new Intl.NumberFormat().format(state.candidateRows.length)} patches from ${shards.length - failed.length}/${shards.length} shards. Click anywhere to seed an exemplar.`
       : "Region loaded, but no patches returned.";
     setStatus(failed.length ? `${base} (${failed.length} shard(s) failed)` : base);
     updateView();
@@ -1093,20 +1114,78 @@ function findNearestCandidate(lat: number, lng: number): CandidateRow | null {
   return best;
 }
 
-function addPositive(lat: number, lng: number): void {
-  // Deduplicate: skip if this click resolves to an already-selected patch
-  const patch = findNearestCandidate(lat, lng);
-  if (patch) {
-    const existing = state.positivePoints.some((p) => {
-      const ep = findNearestCandidate(p.lat, p.lng);
-      return ep && ep.chips_id === patch.chips_id;
-    });
-    if (existing) return;
+async function fetchExternalEmbedding(lat: number, lng: number): Promise<CandidateRow | null> {
+  const db = await getDuckDB();
+  const conn = await db.connect();
+  try {
+    // Find which shard(s) contain this point
+    const mResult = await conn.query(`
+      SELECT path FROM read_parquet(${sqlString(MANIFEST_URL)})
+      WHERE xmin <= ${lng} AND xmax >= ${lng}
+        AND ymin <= ${lat} AND ymax >= ${lat}
+      ORDER BY rows ASC LIMIT 5
+    `.trim());
+    const shards = mResult.toArray() as Array<{ path: string }>;
+    if (!shards.length) return null;
+
+    for (const shard of shards) {
+      const url = resolveShardUrl(shard.path);
+      const rows = await fetchShardCandidates(db, url, {
+        west: lng - 0.01, south: lat - 0.01,
+        east: lng + 0.01, north: lat + 0.01,
+      });
+      const hit = rows.find((r) => containsPoint(r.bbox, lat, lng));
+      if (hit) return hit;
+    }
+    return null;
+  } finally {
+    await conn.close();
   }
-  state.positivePoints.push({ id: state.positivePoints.length + 1, lat, lng });
-  globe.setPositives(state.positivePoints);
-  void scoreCandidates();
-  updateView();
+}
+
+function addPositive(lat: number, lng: number): void {
+  const isInsideAoi = state.bbox && containsPoint(state.bbox, lat, lng);
+
+  if (isInsideAoi) {
+    // Deduplicate: skip if this click resolves to an already-selected patch
+    const patch = findNearestCandidate(lat, lng);
+    if (patch) {
+      const existing = state.positivePoints.some((p) => {
+        const ep = findNearestCandidate(p.lat, p.lng);
+        return ep && ep.chips_id === patch.chips_id;
+      });
+      if (existing) return;
+    }
+    state.positivePoints.push({ id: state.positivePoints.length + 1, lat, lng });
+    globe.setPositives(state.positivePoints);
+    void scoreCandidates();
+    updateView();
+  } else {
+    // External exemplar — fetch embedding from remote parquet
+    setStatus("Fetching external exemplar embedding…");
+    updateView();
+    void fetchExternalEmbedding(lat, lng).then((row) => {
+      if (!row) {
+        setStatus("No patch found at that location.");
+        return;
+      }
+      // Deduplicate by chips_id
+      const existing = state.positivePoints.some((p) => p.embedding && p.chips_id === row.chips_id);
+      if (existing) {
+        setStatus("That patch is already selected.");
+        return;
+      }
+      state.positivePoints.push({
+        id: state.positivePoints.length + 1,
+        lat, lng,
+        embedding: row.embedding,
+        chips_id: row.chips_id,
+      });
+      globe.setPositives(state.positivePoints);
+      void scoreCandidates();
+      updateView();
+    });
+  }
 }
 
 function clearPoints(): void {
@@ -1118,7 +1197,7 @@ function clearPoints(): void {
   globe.setPositiveMatches([]);
   globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
-  setStatus("Exemplar points cleared. Click inside the AOI to seed new ones.");
+  setStatus("Exemplar points cleared. Click anywhere to seed new ones.");
   updateView();
 }
 

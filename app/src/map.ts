@@ -456,10 +456,8 @@ export class GlobeMap {
           return;
         }
       }
-      const bbox = this.cb.getBBox();
-      if (!bbox) return;
+      if (!this.cb.getBBox()) return;
       const { lat, lng } = e.lngLat;
-      if (lng < bbox.west || lng > bbox.east || lat < bbox.south || lat > bbox.north) return;
       this.cb.onAoiClick(lat, lng);
     });
 

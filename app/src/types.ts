@@ -19,6 +19,10 @@ export type PositivePoint = {
   id: number;
   lat: number;
   lng: number;
+  /** Embedding fetched on-the-fly for exemplars outside the current AOI. */
+  embedding?: Uint8Array;
+  /** chips_id for deduplication of external exemplars. */
+  chips_id?: string;
 };
 
 export type CandidateRow = {
