@@ -2097,7 +2097,6 @@ function tutorialStart(): void {
 
 function tutorialStop(): void {
   tutorialState.active = false;
-  localStorage.setItem(TUTORIAL_STORAGE_KEY, "1");
   const overlay = document.querySelector<HTMLElement>("#tut-overlay");
   const card = document.querySelector<HTMLElement>("#tut-card");
   if (overlay) overlay.classList.remove("is-active", "has-spotlight", "is-transitioning");
@@ -2112,11 +2111,8 @@ function wireTutorial(): void {
     else tutorialStart();
   });
 
-  // Auto-show on first visit
-  if (!localStorage.getItem(TUTORIAL_STORAGE_KEY)) {
-    // Small delay so the app finishes rendering
-    setTimeout(tutorialStart, 900);
-  }
+  // Always show tutorial on start
+  setTimeout(tutorialStart, 900);
 
   // Esc to close
   window.addEventListener("keydown", (ev) => {
