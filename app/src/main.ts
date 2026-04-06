@@ -13,6 +13,7 @@ import type {
   PositiveMatch,
   PositivePoint,
   RankedRow,
+  ViewMode,
 } from "./types";
 import {
   centroid,
@@ -36,8 +37,11 @@ type AppState = {
   positivePoints: PositivePoint[];
   positiveMatches: PositiveMatch[];
   results: RankedRow[];
+  outlierResults: RankedRow[];
+  outlierComputed: boolean;
   topK: number;
-  showHeatmap: boolean;
+  viewMode: ViewMode;
+  threshold: number;
   loading: boolean;
 };
 
@@ -49,8 +53,11 @@ const state: AppState = {
   positivePoints: [],
   positiveMatches: [],
   results: [],
+  outlierResults: [],
+  outlierComputed: false,
   topK: DEFAULT_TOP_K,
-  showHeatmap: false,
+  viewMode: "topk",
+  threshold: Infinity,
   loading: false,
 };
 
@@ -116,14 +123,14 @@ function renderShell(): void {
       <section class="hud-panel hud-panel-left" id="query-panel">
         <header class="panel-head">
           <span class="panel-kicker">01 · Query</span>
-          <h2>Region of interest</h2>
         </header>
         <div class="draw-row">
-          <button id="draw-btn" class="btn btn-primary" type="button">
+          <button id="draw-btn" class="btn btn-sm btn-primary" type="button">
             <span class="btn-glyph">▢</span>
             <span id="draw-label">Draw region</span>
           </button>
-          <button id="clear-btn" class="btn btn-ghost" type="button">Clear</button>
+          <button id="clear-region-btn" class="btn btn-sm btn-ghost" type="button">Clear region</button>
+          <button id="clear-points-btn2" class="btn btn-sm btn-ghost" type="button">Clear points</button>
         </div>
         <div class="meta-row">
           <div class="meta-cell">
@@ -135,11 +142,10 @@ function renderShell(): void {
             <dd id="m-patches">—</dd>
           </div>
           <div class="meta-cell">
-            <dt>AOI</dt>
-            <dd id="m-aoi">—</dd>
+            <dt>ROI</dt>
+            <dd id="m-roi">—</dd>
           </div>
         </div>
-        <p class="hint">Shift + drag anywhere · Click inside the box to seed a positive exemplar · Esc clears</p>
 
         <div class="panel-split">
           <div class="sub-card">
@@ -167,17 +173,29 @@ function renderShell(): void {
             </header>
 
             <div class="view-toggle" role="tablist" aria-label="Result view">
-              <button id="view-topk" class="view-tab is-active" type="button" role="tab">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="3" width="12" height="3" rx="0.6"/><rect x="2" y="7" width="9" height="3" rx="0.6"/><rect x="2" y="11" width="5" height="3" rx="0.6"/></svg>
-                <span>Top-k</span>
+              <button data-view="topk" class="view-tab is-active" type="button" role="tab" title="Top-K ranked list">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="3" width="12" height="3" rx="0.6"/><rect x="2" y="7" width="9" height="3" rx="0.6"/><rect x="2" y="11" width="5" height="3" rx="0.6"/></svg>
+                <span>Top-K</span>
               </button>
-              <button id="view-heatmap" class="view-tab" type="button" role="tab">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="2" width="4" height="4"/><rect x="6" y="2" width="4" height="4"/><rect x="10" y="2" width="4" height="4"/><rect x="2" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="10" y="6" width="4" height="4"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/></svg>
-                <span>Heatmap</span>
+              <button data-view="heatmap" class="view-tab" type="button" role="tab" title="Heatmap of all scored tiles">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="2" width="4" height="4"/><rect x="6" y="2" width="4" height="4"/><rect x="10" y="2" width="4" height="4"/><rect x="2" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="10" y="6" width="4" height="4"/><rect x="2" y="10" width="4" height="4"/><rect x="6" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/></svg>
+                <span>Heat</span>
+              </button>
+              <button data-view="contour" class="view-tab" type="button" role="tab" title="Smooth density surface">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12c2-4 4-6 6-7s4 0 6 3"/><path d="M2 10c2-3 4-4 6-5s4 0 6 2" opacity=".5"/></svg>
+                <span>Contour</span>
+              </button>
+              <button data-view="outlier" class="view-tab" type="button" role="tab" title="Most unique patches">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="2"/><circle cx="4" cy="6" r="1.2"/><circle cx="12" cy="5" r="1.2"/><circle cx="13" cy="11" r="1.2"/><circle cx="3" cy="12" r="1.2"/></svg>
+                <span>Outlier</span>
+              </button>
+              <button data-view="threshold" class="view-tab" type="button" role="tab" title="Distance cutoff">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2" y="10" width="2" height="4"/><rect x="5" y="6" width="2" height="8"/><rect x="8" y="3" width="2" height="11"/><rect x="11" y="8" width="2" height="6"/><line x1="1" y1="7" x2="15" y2="7" stroke-dasharray="2 1.5"/></svg>
+                <span>Cutoff</span>
               </button>
             </div>
 
-            <div id="topk-control" class="slider-row">
+            <div id="topk-control" class="slider-row" hidden>
               <label class="slider">
                 <span>Top-k <strong id="topk-value">${DEFAULT_TOP_K}</strong></span>
                 <input id="topk-slider" type="range" min="1" max="${MAX_TOP_K}" value="${DEFAULT_TOP_K}" />
@@ -192,10 +210,37 @@ function renderShell(): void {
               </div>
             </div>
 
+            <div id="outlier-legend" class="heatmap-legend" hidden>
+              <div class="legend-gradient legend-gradient-outlier"></div>
+              <div class="legend-labels">
+                <span>Most unique</span>
+                <span>Common</span>
+              </div>
+            </div>
+
+            <div id="threshold-control" class="threshold-control" hidden>
+              <div id="histogram-wrap" class="histogram-wrap"></div>
+              <label class="slider">
+                <span>Distance ≤ <strong id="threshold-value">0</strong> · <strong id="threshold-count">0</strong> patches</span>
+                <input id="threshold-slider" type="range" min="0" max="100" value="50" step="0.1" />
+              </label>
+            </div>
+
             <ol id="result-list" class="result-list"></ol>
+            <button id="export-btn" class="btn btn-sm btn-ghost btn-export" type="button" hidden>
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 11v3h12v-3"/><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/></svg>
+              <span>Export GeoParquet</span>
+            </button>
           </div>
         </div>
       </section>
+
+      <nav class="hud-panel hud-panel-right hud-aoi-nav" id="aoi-nav">
+        <header class="panel-head">
+          <span class="panel-kicker">Explore</span>
+        </header>
+        <ul id="aoi-list" class="aoi-list"></ul>
+      </nav>
     </div>
   `;
 }
@@ -206,26 +251,82 @@ function els() {
     statusPill: document.querySelector<HTMLElement>("#status-pill"),
     drawBtn: document.querySelector<HTMLButtonElement>("#draw-btn"),
     drawLabel: document.querySelector<HTMLElement>("#draw-label"),
-    clearBtn: document.querySelector<HTMLButtonElement>("#clear-btn"),
+    clearRegionBtn: document.querySelector<HTMLButtonElement>("#clear-region-btn"),
+    clearPointsBtn2: document.querySelector<HTMLButtonElement>("#clear-points-btn2"),
     mShards: document.querySelector<HTMLElement>("#m-shards"),
     mPatches: document.querySelector<HTMLElement>("#m-patches"),
-    mAoi: document.querySelector<HTMLElement>("#m-aoi"),
+    mRoi: document.querySelector<HTMLElement>("#m-roi"),
     positiveList: document.querySelector<HTMLOListElement>("#positive-list"),
     exemplarCount: document.querySelector<HTMLElement>("#exemplar-count"),
     topkSlider: document.querySelector<HTMLInputElement>("#topk-slider"),
     topkValue: document.querySelector<HTMLElement>("#topk-value"),
     topkControl: document.querySelector<HTMLElement>("#topk-control"),
-    viewTopk: document.querySelector<HTMLButtonElement>("#view-topk"),
-    viewHeatmap: document.querySelector<HTMLButtonElement>("#view-heatmap"),
+    viewTabs: document.querySelectorAll<HTMLButtonElement>(".view-tab[data-view]"),
     heatmapLegend: document.querySelector<HTMLElement>("#heatmap-legend"),
+    outlierLegend: document.querySelector<HTMLElement>("#outlier-legend"),
+    thresholdControl: document.querySelector<HTMLElement>("#threshold-control"),
+    thresholdSlider: document.querySelector<HTMLInputElement>("#threshold-slider"),
+    thresholdValue: document.querySelector<HTMLElement>("#threshold-value"),
+    thresholdCount: document.querySelector<HTMLElement>("#threshold-count"),
+    histogramWrap: document.querySelector<HTMLElement>("#histogram-wrap"),
     clearPointsBtn: document.querySelector<HTMLButtonElement>("#clear-points-btn"),
     resultCount: document.querySelector<HTMLElement>("#result-count"),
     resultList: document.querySelector<HTMLOListElement>("#result-list"),
+    exportBtn: document.querySelector<HTMLButtonElement>("#export-btn"),
     searchWrap: document.querySelector<HTMLElement>("#search-wrap"),
     searchInput: document.querySelector<HTMLInputElement>("#search-input"),
     searchResults: document.querySelector<HTMLUListElement>("#search-results"),
     searchSpinner: document.querySelector<HTMLElement>("#search-spinner"),
+    aoiList: document.querySelector<HTMLUListElement>("#aoi-list"),
   };
+}
+
+/* --------------------------------------------------------------- AOI presets */
+
+type AoiPreset = { name: string; tag: string; bbox: BBox };
+
+const AOI_PRESETS: AoiPreset[] = [
+  { name: "Center pivots", tag: "agriculture", bbox: { west: 37.2, south: 29.0, east: 39.0, north: 30.2 } },
+  { name: "Palm Islands", tag: "coastal eng.", bbox: { west: 54.95, south: 25.05, east: 55.25, north: 25.2 } },
+  { name: "Bhadla Solar", tag: "solar farm", bbox: { west: 71.6, south: 27.3, east: 72.1, north: 27.65 } },
+  { name: "Rondônia", tag: "deforestation", bbox: { west: -63.5, south: -11.0, east: -62.5, north: -10.0 } },
+  { name: "Kansas Grid", tag: "cropland", bbox: { west: -101.0, south: 37.6, east: -100.0, north: 38.4 } },
+  { name: "Rotterdam", tag: "port", bbox: { west: 3.85, south: 51.85, east: 4.35, north: 52.05 } },
+  { name: "Hartsfield ATL", tag: "airport", bbox: { west: -84.55, south: 33.55, east: -84.35, north: 33.7 } },
+  { name: "Pilbara Mines", tag: "mining", bbox: { west: 117.6, south: -22.8, east: 118.8, north: -21.8 } },
+  { name: "Venice Lagoon", tag: "lagoon", bbox: { west: 12.15, south: 45.3, east: 12.55, north: 45.55 } },
+  { name: "Vatnajökull", tag: "glacier", bbox: { west: -17.2, south: 64.1, east: -16.2, north: 64.6 } },
+  { name: "Ganges Delta", tag: "river delta", bbox: { west: 89.0, south: 21.6, east: 90.0, north: 22.4 } },
+  { name: "Malé Atoll", tag: "coral atoll", bbox: { west: 73.35, south: 4.05, east: 73.7, north: 4.35 } },
+  { name: "Yellowstone", tag: "caldera", bbox: { west: -111.0, south: 44.3, east: -110.0, north: 44.85 } },
+  { name: "Mekong Delta", tag: "rice paddy", bbox: { west: 105.6, south: 9.7, east: 106.4, north: 10.3 } },
+  { name: "Horns Rev", tag: "wind farm", bbox: { west: 7.5, south: 55.4, east: 8.2, north: 55.8 } },
+  { name: "Salar de Uyuni", tag: "salt flat", bbox: { west: -68.0, south: -20.6, east: -67.0, north: -19.8 } },
+  { name: "Tokyo Bay", tag: "megacity", bbox: { west: 139.6, south: 35.55, east: 140.0, north: 35.8 } },
+  { name: "Outer Banks", tag: "barrier island", bbox: { west: -76.0, south: 35.0, east: -75.3, north: 35.7 } },
+  { name: "Bali Terraces", tag: "terraced ag.", bbox: { west: 115.15, south: -8.55, east: 115.55, north: -8.2 } },
+  { name: "Borneo Palm", tag: "oil palm", bbox: { west: 109.5, south: 0.6, east: 110.5, north: 1.4 } },
+];
+
+function renderAoiPresets(): void {
+  const e = els();
+  if (!e.aoiList) return;
+  e.aoiList.innerHTML = AOI_PRESETS.map(
+    (aoi, i) => `
+    <li class="aoi-item" style="--i:${i}">
+      <button type="button" data-aoi="${i}">
+        <span class="aoi-name">${aoi.name}</span>
+        <span class="aoi-tag">${aoi.tag}</span>
+      </button>
+    </li>`,
+  ).join("");
+  e.aoiList.querySelectorAll<HTMLButtonElement>("button[data-aoi]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const aoi = AOI_PRESETS[Number(btn.dataset.aoi)];
+      globe.fitBounds(aoi.bbox, { padding: 60, maxZoom: 11 });
+      setStatus(`${aoi.name} — shift-drag to draw a region.`);
+    });
+  });
 }
 
 /* --------------------------------------------------------------- Geocoding */
@@ -377,17 +478,41 @@ function updateView(): void {
 
   if (e.mShards) e.mShards.textContent = state.manifestShards.length ? String(state.manifestShards.length) : "—";
   if (e.mPatches) e.mPatches.textContent = state.candidateRows.length ? new Intl.NumberFormat().format(state.candidateRows.length) : "—";
-  if (e.mAoi) e.mAoi.textContent = state.bbox ? `${(state.bbox.east - state.bbox.west).toFixed(2)}°×${(state.bbox.north - state.bbox.south).toFixed(2)}°` : "—";
+  if (e.mRoi) e.mRoi.textContent = state.bbox ? `${(state.bbox.east - state.bbox.west).toFixed(2)}°×${(state.bbox.north - state.bbox.south).toFixed(2)}°` : "—";
 
   if (e.topkSlider) e.topkSlider.value = String(state.topK);
   if (e.topkValue) e.topkValue.textContent = String(state.topK);
-  e.viewTopk?.classList.toggle("is-active", !state.showHeatmap);
-  e.viewHeatmap?.classList.toggle("is-active", state.showHeatmap);
-  if (e.topkControl) e.topkControl.hidden = state.showHeatmap;
-  if (e.heatmapLegend) e.heatmapLegend.hidden = !state.showHeatmap;
+
+  // View mode tabs
+  e.viewTabs.forEach((tab) => {
+    tab.classList.toggle("is-active", tab.dataset.view === state.viewMode);
+  });
+  if (e.topkControl) e.topkControl.hidden = state.viewMode !== "topk";
+  if (e.heatmapLegend) e.heatmapLegend.hidden = state.viewMode !== "heatmap" && state.viewMode !== "contour";
+  if (e.outlierLegend) e.outlierLegend.hidden = state.viewMode !== "outlier";
+  if (e.thresholdControl) e.thresholdControl.hidden = state.viewMode !== "threshold";
+
+  // Threshold UI
+  if (state.viewMode === "threshold" && state.results.length) {
+    const scores = state.results.map((r) => r.score);
+    const mn = Math.min(...scores);
+    const mx = Math.max(...scores);
+    if (e.thresholdSlider) {
+      e.thresholdSlider.min = String(mn);
+      e.thresholdSlider.max = String(mx);
+      if (state.threshold === Infinity) state.threshold = scores[Math.min(state.topK, scores.length) - 1] ?? mx;
+      e.thresholdSlider.value = String(state.threshold);
+      e.thresholdSlider.step = String(Math.max(0.1, (mx - mn) / 200));
+    }
+    if (e.thresholdValue) e.thresholdValue.textContent = state.threshold.toFixed(1);
+    const below = state.results.filter((r) => r.score <= state.threshold).length;
+    if (e.thresholdCount) e.thresholdCount.textContent = String(below);
+    if (e.histogramWrap) e.histogramWrap.innerHTML = renderHistogram(scores, state.threshold);
+  }
 
   if (e.exemplarCount) e.exemplarCount.textContent = String(state.positivePoints.length);
   if (e.clearPointsBtn) e.clearPointsBtn.hidden = state.positivePoints.length === 0;
+  if (e.exportBtn) e.exportBtn.hidden = state.results.length === 0;
 
   // Exemplar list
   e.positiveList.innerHTML = "";
@@ -420,26 +545,28 @@ function updateView(): void {
     });
   }
 
-  // Results list
-  const visible = state.results.slice(0, state.topK);
+  // Results list — pick the right source and slice for the active view
+  const activeResults = state.viewMode === "outlier" ? state.outlierResults : state.results;
+  const visible = state.viewMode === "topk"
+    ? activeResults.slice(0, state.topK)
+    : state.viewMode === "threshold"
+      ? activeResults.filter((r) => r.score <= state.threshold)
+      : activeResults.slice(0, state.topK); // list shows topK even in heatmap/contour/outlier
+
   if (e.resultCount) {
+    const needsExemplars = state.viewMode !== "outlier";
     if (!state.candidateRows.length) e.resultCount.textContent = "Awaiting region";
-    else if (!state.positivePoints.length) e.resultCount.textContent = "Awaiting exemplar";
-    else if (state.showHeatmap)
-      e.resultCount.textContent = `${new Intl.NumberFormat().format(state.results.length)} scored`;
+    else if (needsExemplars && !state.positivePoints.length) e.resultCount.textContent = "Awaiting exemplar";
+    else if (state.viewMode === "threshold")
+      e.resultCount.textContent = `${visible.length} / ${new Intl.NumberFormat().format(activeResults.length)} within cutoff`;
+    else if (state.viewMode === "topk")
+      e.resultCount.textContent = `${visible.length} shown / ${new Intl.NumberFormat().format(activeResults.length)}`;
     else
-      e.resultCount.textContent = `${visible.length} shown / ${new Intl.NumberFormat().format(state.results.length)}`;
+      e.resultCount.textContent = `${new Intl.NumberFormat().format(activeResults.length)} scored`;
   }
 
   e.resultList.innerHTML = "";
-  if (!visible.length) {
-    const msg = !state.candidateRows.length
-      ? "Draw an AOI to fetch candidate tiles."
-      : !state.positivePoints.length
-        ? "Add a positive point inside the AOI to rank."
-        : "No ranked tiles.";
-    e.resultList.innerHTML = `<li class="empty">${msg}</li>`;
-  } else {
+  if (visible.length) {
     for (const [i, r] of visible.entries()) {
       const c = centroid(r.bbox);
       const li = document.createElement("li");
@@ -458,7 +585,7 @@ function updateView(): void {
       e.resultList.appendChild(li);
     }
     e.resultList.querySelectorAll<HTMLButtonElement>("button[data-chip]").forEach((b) => {
-      const row = state.results.find((r) => r.chips_id === b.dataset.chip);
+      const row = activeResults.find((r) => r.chips_id === b.dataset.chip);
       if (!row) return;
       b.addEventListener("mouseenter", () => globe.setPreview(row));
       b.addEventListener("focus", () => globe.setPreview(row));
@@ -659,7 +786,7 @@ async function scoreCandidates(): Promise<void> {
     state.positiveMatches = [];
     state.results = [];
     globe.setPositiveMatches([]);
-    globe.setResults([], state.topK, state.showHeatmap);
+    globe.setResults([], state.topK, state.viewMode);
     globe.setPreview(null);
     updateView();
     return;
@@ -671,7 +798,7 @@ async function scoreCandidates(): Promise<void> {
 
   if (!exemplars.length) {
     state.results = [];
-    globe.setResults([], state.topK, state.showHeatmap);
+    globe.setResults([], state.topK, state.viewMode);
     setStatus("No patch under the selected point — try closer to a tile center.");
     return;
   }
@@ -680,9 +807,126 @@ async function scoreCandidates(): Promise<void> {
   const scored = await scoreWithWorker(exemplars);
   if (runId !== latestScoreRunId) return;
   state.results = scored;
-  globe.setResults(scored, state.topK, state.showHeatmap);
+  globe.setResults(scored, state.topK, state.viewMode);
   setStatus(`Ranked ${scored.length} candidates against ${exemplars.length} exemplar(s).`);
   updateView();
+}
+
+/* ---------------------------------------------------------- Histogram */
+
+function renderHistogram(scores: number[], threshold: number): string {
+  if (!scores.length) return "";
+  const bins = 32;
+  const min = Math.min(...scores);
+  const max = Math.max(...scores);
+  const range = max - min || 1;
+  const binWidth = range / bins;
+  const counts = new Array(bins).fill(0) as number[];
+  for (const s of scores) {
+    const bin = Math.min(Math.floor((s - min) / binWidth), bins - 1);
+    counts[bin]++;
+  }
+  const maxCount = Math.max(...counts);
+  const w = 240;
+  const h = 36;
+  const bw = w / bins;
+  const bars = counts
+    .map((count, i) => {
+      const binMid = min + (i + 0.5) * binWidth;
+      const barH = maxCount > 0 ? (count / maxCount) * h : 0;
+      const x = i * bw;
+      const y = h - barH;
+      const fill = binMid <= threshold ? "var(--accent)" : "rgba(243,236,216,0.1)";
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw - 0.5).toFixed(1)}" height="${barH.toFixed(1)}" fill="${fill}" rx="1"/>`;
+    })
+    .join("");
+  return `<svg class="histogram-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${bars}</svg>`;
+}
+
+/* ---------------------------------------------------------- Outlier scoring */
+
+async function computeOutliers(): Promise<void> {
+  if (!scoringWorkerReady || !state.candidateRows.length) return;
+  if (state.outlierComputed) return;
+
+  setStatus("Computing outlier scores…");
+  const worker = ensureScoringWorker();
+  const requestId = ++scoringRequestId;
+  const results = await new Promise<WorkerScoreResult[]>((resolve, reject) => {
+    const onMessage = (event: MessageEvent<{ type: string; requestId: number; results: WorkerScoreResult[] }>) => {
+      if (event.data.type !== "outlier-result" || event.data.requestId !== requestId) return;
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+      resolve(event.data.results);
+    };
+    const onError = (event: ErrorEvent) => {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+      reject(event.error ?? new Error(event.message));
+    };
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError);
+    worker.postMessage({ type: "outlier", requestId, sampleSize: 200 });
+  });
+
+  state.outlierResults = results.map(({ index, score }) => ({ ...state.candidateRows[index], score }));
+  state.outlierComputed = true;
+  globe.setResults(state.outlierResults, state.topK, "outlier");
+  setStatus(`Outlier analysis: ${state.outlierResults.length} patches scored. Brightest = most unique.`);
+  updateView();
+}
+
+/* ---------------------------------------------------------- GeoParquet export */
+
+async function exportGeoParquet(): Promise<void> {
+  const exemplars = state.positiveMatches.map((m) => m.candidate);
+  const topk = state.results.slice(0, state.viewMode === "topk" ? state.topK : state.results.length);
+  if (!exemplars.length && !topk.length) return;
+
+  setStatus("Exporting GeoParquet…");
+  try {
+    const db = await getDuckDB();
+    const conn = await db.connect();
+
+    // Build VALUES clauses for exemplars and candidates
+    const rows: string[] = [];
+    for (const ex of exemplars) {
+      const c = centroid(ex.bbox);
+      rows.push(
+        `('exemplar', ${sqlString(ex.chips_id)}, ${c.lat}, ${c.lng}, ${ex.bbox.west}, ${ex.bbox.south}, ${ex.bbox.east}, ${ex.bbox.north}, NULL::DOUBLE, NULL::INT)`,
+      );
+    }
+    for (const [i, r] of topk.entries()) {
+      const c = centroid(r.bbox);
+      rows.push(
+        `('candidate', ${sqlString(r.chips_id)}, ${c.lat}, ${c.lng}, ${r.bbox.west}, ${r.bbox.south}, ${r.bbox.east}, ${r.bbox.north}, ${r.score}, ${i + 1})`,
+      );
+    }
+
+    const vfsPath = "/tmp/export.parquet";
+    await conn.query(`
+      COPY (
+        SELECT * FROM (
+          VALUES ${rows.join(",\n")}
+        ) AS t(type, chips_id, lat, lng, west, south, east, north, score, rank)
+      ) TO '${vfsPath}' (FORMAT PARQUET, COMPRESSION ZSTD)
+    `);
+
+    const buf = await db.copyFileToBuffer(vfsPath);
+    await conn.close();
+
+    // Trigger download
+    const blob = new Blob([buf.buffer as ArrayBuffer], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `terrabit-export-${Date.now()}.parquet`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus(`Exported ${exemplars.length} exemplar(s) + ${topk.length} candidates to GeoParquet.`);
+  } catch (err) {
+    setStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /* ---------------------------------------------------------- App actions */
@@ -694,13 +938,16 @@ async function loadRegion(bbox: BBox): Promise<void> {
   state.positivePoints = [];
   state.positiveMatches = [];
   state.results = [];
+  state.outlierResults = [];
+  state.outlierComputed = false;
+  state.threshold = Infinity;
   state.candidateRows = [];
   state.manifestShards = [];
   state.loading = true;
   globe.setAoi(bbox);
   globe.setPositives([]);
   globe.setPositiveMatches([]);
-  globe.setResults([], state.topK, state.showHeatmap);
+  globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
   setStatus("Fetching intersecting shards…");
   updateView();
@@ -792,7 +1039,7 @@ function clearPoints(): void {
   state.results = [];
   globe.setPositives([]);
   globe.setPositiveMatches([]);
-  globe.setResults([], state.topK, state.showHeatmap);
+  globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
   setStatus("Exemplar points cleared. Click inside the AOI to seed new ones.");
   updateView();
@@ -806,11 +1053,14 @@ function clearRegion(): void {
   state.positiveMatches = [];
   state.results = [];
   state.topK = DEFAULT_TOP_K;
-  state.showHeatmap = false;
+  state.viewMode = "topk";
+  state.outlierResults = [];
+  state.outlierComputed = false;
+  state.threshold = Infinity;
   globe.setAoi(null);
   globe.setPositives([]);
   globe.setPositiveMatches([]);
-  globe.setResults([], state.topK, state.showHeatmap);
+  globe.setResults([], state.topK, state.viewMode);
   globe.setPreview(null);
   setStatus("Cleared. Shift-drag to define a new region.");
 }
@@ -820,26 +1070,43 @@ function clearRegion(): void {
 function wire(): void {
   const e = els();
   e.drawBtn?.addEventListener("click", () => {
-    if (state.bbox) {
-      clearRegion();
-    }
     globe.armDraw(!globe.isArmed());
     setStatus(globe.isArmed() ? "Draw armed — drag on the globe to define a region." : "Draw disarmed.");
   });
-  e.clearBtn?.addEventListener("click", clearRegion);
+  e.clearRegionBtn?.addEventListener("click", clearRegion);
   e.clearPointsBtn?.addEventListener("click", clearPoints);
+  e.clearPointsBtn2?.addEventListener("click", clearPoints);
+  e.exportBtn?.addEventListener("click", () => void exportGeoParquet());
   e.topkSlider?.addEventListener("input", (ev) => {
     state.topK = Number((ev.currentTarget as HTMLInputElement).value);
-    globe.setResults(state.results, state.topK, state.showHeatmap);
+    globe.setResults(state.results, state.topK, state.viewMode);
     updateView();
   });
-  const setView = (heatmap: boolean) => {
-    state.showHeatmap = heatmap;
-    globe.setResults(state.results, state.topK, state.showHeatmap);
+  e.thresholdSlider?.addEventListener("input", (ev) => {
+    state.threshold = Number((ev.currentTarget as HTMLInputElement).value);
+    const filtered = state.results.filter((r) => r.score <= state.threshold);
+    globe.setResults(filtered, filtered.length, "threshold");
     updateView();
-  };
-  e.viewTopk?.addEventListener("click", () => setView(false));
-  e.viewHeatmap?.addEventListener("click", () => setView(true));
+  });
+
+  // View mode tabs
+  e.viewTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const mode = tab.dataset.view as ViewMode;
+      state.viewMode = mode;
+      if (mode === "outlier" && !state.outlierComputed) {
+        void computeOutliers();
+      } else if (mode === "outlier") {
+        globe.setResults(state.outlierResults, state.topK, mode);
+      } else if (mode === "threshold") {
+        const filtered = state.results.filter((r) => r.score <= state.threshold);
+        globe.setResults(filtered, filtered.length, mode);
+      } else {
+        globe.setResults(state.results, state.topK, mode);
+      }
+      updateView();
+    });
+  });
 
   // Geocoder search
   e.searchInput?.addEventListener("input", (ev) => {
@@ -927,6 +1194,7 @@ function bootstrap(): void {
     getTopK: () => state.topK,
   });
   wire();
+  renderAoiPresets();
   updateView();
 }
 

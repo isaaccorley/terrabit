@@ -36,3 +36,5 @@ export type PositiveMatch = {
 export type RankedRow = CandidateRow & {
   score: number;
 };
+
+export type ViewMode = "topk" | "heatmap" | "contour" | "outlier" | "threshold";

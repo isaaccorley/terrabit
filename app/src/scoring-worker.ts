@@ -10,7 +10,13 @@ type ScoreMessage = {
   excludeIndices: number[];
 };
 
-type WorkerMessage = InitMessage | ScoreMessage;
+type OutlierMessage = {
+  type: "outlier";
+  requestId: number;
+  sampleSize: number;
+};
+
+type WorkerMessage = InitMessage | ScoreMessage | OutlierMessage;
 
 type ScoredResult = {
   index: number;
@@ -57,9 +63,47 @@ function scoreCandidates(exemplars: Uint8Array[], excludeIndices: Set<number>): 
   return results;
 }
 
+function computeOutlierScores(sampleSize: number): ScoredResult[] {
+  const n = candidateEmbeddings.length;
+  if (n === 0) return [];
+
+  // Deterministic sampling: evenly spaced reference embeddings
+  const m = Math.min(sampleSize, n);
+  const step = Math.max(1, Math.floor(n / m));
+  const refs: Uint8Array[] = [];
+  for (let i = 0; i < n && refs.length < m; i += step) {
+    refs.push(candidateEmbeddings[i]);
+  }
+
+  const results: ScoredResult[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const emb = candidateEmbeddings[i];
+    let total = 0;
+    for (const ref of refs) {
+      total += hammingDistance(emb, ref);
+    }
+    // Higher mean distance → more unique / outlier-like
+    results.push({ index: i, score: total / refs.length });
+  }
+
+  // Descending: most unique first
+  results.sort((a, b) => b.score - a.score || a.index - b.index);
+  return results;
+}
+
 self.onmessage = (event: MessageEvent<WorkerMessage>) => {
   if (event.data.type === "init") {
     candidateEmbeddings = event.data.embeddings.map((embedding) => new Uint8Array(embedding));
+    return;
+  }
+
+  if (event.data.type === "outlier") {
+    const results = computeOutlierScores(event.data.sampleSize);
+    self.postMessage({
+      type: "outlier-result",
+      requestId: event.data.requestId,
+      results,
+    });
     return;
   }
 

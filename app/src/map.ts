@@ -3,10 +3,10 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import type {
   BBox,
-  CandidateRow,
   PositiveMatch,
   PositivePoint,
   RankedRow,
+  ViewMode,
 } from "./types";
 import { centroid, interpolatePlasma } from "./util";
 
@@ -66,10 +66,6 @@ export class GlobeMap {
     // for AOI drawing, so disable it here.
     this.map.boxZoom.disable();
 
-    this.map.addControl(
-      new maplibregl.AttributionControl({ compact: true }),
-      "bottom-right",
-    );
     this.map.addControl(
       new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }),
       "top-right",
@@ -150,7 +146,7 @@ export class GlobeMap {
 
   private addSources(): void {
     const empty = { type: "FeatureCollection", features: [] } as const;
-    for (const id of ["aoi", "positives", "positive-matches", "results", "preview", "draft"]) {
+    for (const id of ["aoi", "positives", "positive-matches", "results", "contour", "preview", "draft"]) {
       this.map.addSource(id, { type: "geojson", data: empty as any });
     }
   }
@@ -190,6 +186,39 @@ export class GlobeMap {
       source: "draft",
       paint: { "line-color": "#e5a853", "line-width": 1.6 },
     });
+
+    // Contour (MapLibre native heatmap layer — smooth gaussian interpolation)
+    this.map.addLayer({
+      id: "contour-heat",
+      type: "heatmap",
+      source: "contour",
+      layout: { visibility: "none" },
+      paint: {
+        "heatmap-weight": ["coalesce", ["get", "weight"], 0.5],
+        "heatmap-intensity": [
+          "interpolate", ["linear"], ["zoom"],
+          4, 0.6,
+          8, 1.2,
+          12, 2,
+        ],
+        "heatmap-radius": [
+          "interpolate", ["linear"], ["zoom"],
+          4, 6,
+          8, 18,
+          12, 36,
+        ],
+        "heatmap-opacity": 0.7,
+        "heatmap-color": [
+          "interpolate", ["linear"], ["heatmap-density"],
+          0, "rgba(13, 8, 135, 0)",
+          0.15, "rgba(126, 3, 167, 0.45)",
+          0.35, "rgba(204, 71, 120, 0.65)",
+          0.55, "rgba(248, 149, 64, 0.8)",
+          0.8, "rgba(240, 249, 33, 0.9)",
+          1, "rgba(240, 249, 33, 1)",
+        ],
+      },
+    } as any);
 
     // Ranked results
     this.map.addLayer({
@@ -314,9 +343,49 @@ export class GlobeMap {
     });
   }
 
-  setResults(results: RankedRow[], topK: number, heatmap: boolean): void {
+  setResults(results: RankedRow[], topK: number, viewMode: ViewMode): void {
     this.whenReady(() => {
-      const list = heatmap ? results : results.slice(0, topK);
+      const isContour = viewMode === "contour";
+
+      // Toggle contour heatmap layer
+      if (this.map.getLayer("contour-heat")) {
+        this.map.setLayoutProperty("contour-heat", "visibility", isContour ? "visible" : "none");
+      }
+
+      if (isContour) {
+        // Set contour point source (centroids with weights)
+        const n = results.length;
+        const features: GeoJSON.Feature[] = results.map((r, i) => {
+          const c = centroid(r.bbox);
+          const weight = n > 1 ? 1 - i / (n - 1) : 1;
+          return {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [c.lng, c.lat] },
+            properties: { weight },
+          };
+        });
+        (this.map.getSource("contour") as maplibregl.GeoJSONSource)?.setData({
+          type: "FeatureCollection",
+          features,
+        });
+        // Clear tile layers
+        (this.map.getSource("results") as maplibregl.GeoJSONSource)?.setData({
+          type: "FeatureCollection",
+          features: [],
+        });
+        return;
+      }
+
+      // Clear contour data
+      (this.map.getSource("contour") as maplibregl.GeoJSONSource)?.setData({
+        type: "FeatureCollection",
+        features: [],
+      });
+
+      // Tile-based views
+      const useColor = viewMode !== "topk";
+      const list = viewMode === "topk" ? results.slice(0, topK) : results;
+
       if (!list.length) {
         (this.map.getSource("results") as maplibregl.GeoJSONSource)?.setData({
           type: "FeatureCollection",
@@ -324,15 +393,12 @@ export class GlobeMap {
         });
         return;
       }
-      const scores = list.map((r) => r.score);
-      const min = Math.min(...scores);
-      const max = Math.max(...scores);
-      const span = max - min || 1;
-      const features = list.map((r) => {
-        const t = (r.score - min) / span;
-        const color = heatmap ? interpolatePlasma(t) : "#d0542c";
-        const fillOpacity = heatmap ? 0.32 - t * 0.18 : 0.18 - t * 0.1;
-        const lineWidth = heatmap ? 0.6 : 1.4;
+      const n = list.length;
+      const features = list.map((r, i) => {
+        const t = n > 1 ? i / (n - 1) : 0;
+        const color = useColor ? interpolatePlasma(t) : "#d0542c";
+        const fillOpacity = useColor ? 0.38 - t * 0.22 : 0.18 - t * 0.1;
+        const lineWidth = useColor ? 0.6 : 1.4;
         return bboxToPolygon(r.bbox, {
           chipsId: r.chips_id,
           score: r.score,
