@@ -1048,7 +1048,29 @@ function pickZoomForBBox(bbox: BBox): number {
   return 10.5;
 }
 
+function findNearestCandidate(lat: number, lng: number): CandidateRow | null {
+  const intersecting = state.candidateRows.filter((c) => containsPoint(c.bbox, lat, lng));
+  if (!intersecting.length) return null;
+  let best = intersecting[0];
+  let bestD = Number.POSITIVE_INFINITY;
+  for (const option of intersecting) {
+    const c = centroid(option.bbox);
+    const d = distanceSquared(lat, lng, c.lat, c.lng);
+    if (d < bestD) { bestD = d; best = option; }
+  }
+  return best;
+}
+
 function addPositive(lat: number, lng: number): void {
+  // Deduplicate: skip if this click resolves to an already-selected patch
+  const patch = findNearestCandidate(lat, lng);
+  if (patch) {
+    const existing = state.positivePoints.some((p) => {
+      const ep = findNearestCandidate(p.lat, p.lng);
+      return ep && ep.chips_id === patch.chips_id;
+    });
+    if (existing) return;
+  }
   state.positivePoints.push({ id: state.positivePoints.length + 1, lat, lng });
   globe.setPositives(state.positivePoints);
   void scoreCandidates();
