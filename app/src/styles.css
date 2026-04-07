@@ -1418,6 +1418,111 @@ button { cursor: pointer; border: 0; background: none; }
   .hud-panel-right { top: auto; bottom: 12px; max-height: 45vh; }
 }
 
+/* ── Mobile (≤ 600px) ── */
+@media (max-width: 600px) {
+  /* Brand: compact, move out of the way */
+  .hud-brand {
+    left: 10px;
+    top: 10px;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+  .brand-mark { width: 30px; height: 30px; }
+  .brand-ring { border-width: 1px; }
+  .brand-text h1 { font-size: 14px; }
+  .brand-text p { font-size: 8px; }
+  .brand-attribution { display: none; }
+
+  /* Search bar: full width, below brand */
+  .hud-search {
+    width: calc(100vw - 20px) !important;
+    left: 10px !important;
+    transform: none !important;
+    top: 52px;
+    animation: none;
+  }
+  .search-kbd { display: none; }
+
+  /* Status pill: full width, bottom of screen */
+  .hud-status {
+    top: auto !important;
+    bottom: 10px;
+    left: 10px !important;
+    right: 10px;
+    transform: none !important;
+    max-width: none;
+    width: calc(100vw - 20px);
+    font-size: 0.75rem;
+    padding: 8px 12px;
+    justify-content: center;
+    text-align: center;
+    animation: none;
+  }
+  #status-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Panels: bottom sheet style */
+  .hud-panel {
+    position: fixed;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: 0;
+    width: 100% !important;
+    max-height: 50vh;
+    border-radius: 16px 16px 0 0;
+    padding: 14px 14px 12px;
+    gap: 10px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .hud-panel-left { z-index: 16; }
+  .hud-panel-right { z-index: 15; }
+
+  /* Draw buttons: bigger touch targets */
+  .draw-mode-btn {
+    height: 36px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+  }
+
+  /* Exemplar/result list items: bigger tap targets */
+  .ip-item button,
+  .result-item button {
+    min-height: 44px;
+  }
+
+  /* Tutorial card: full-width on mobile */
+  .tut-card {
+    width: calc(100vw - 24px) !important;
+    max-width: 320px;
+    left: 12px !important;
+    right: 12px !important;
+  }
+
+  /* Help popover: wider on mobile */
+  .help-popover {
+    width: min(280px, calc(100vw - 24px));
+  }
+
+  /* Nav controls: below search bar area, smaller */
+  .maplibregl-ctrl-top-right {
+    top: 52px !important;
+    right: 10px !important;
+  }
+
+  /* Tutorial trigger: bigger for touch, above status pill */
+  .tutorial-trigger {
+    width: 36px;
+    height: 36px;
+    font-size: 15px;
+    bottom: 54px;
+  }
+}
+
 /* ------------------------------------------------------ Negative exemplars */
 
 .neg-header {
