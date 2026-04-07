@@ -533,29 +533,28 @@ export class GlobeMap {
   private wireDrawing(): void {
     const canvas = () => this.map.getCanvas();
 
-    // ── Rectangle mode ───────────────────────────────────────────────────────
-    this.map.on("mousedown", (e) => {
-      const ev = e.originalEvent;
-      if (!(ev.shiftKey || this.draw.armed) || this.draw.mode !== "rect") return;
+    // ── Shared draw-start / draw-move / draw-end for both mouse + touch ──────
+
+    const drawStart = (lngLat: maplibregl.LngLat, point: { x: number; y: number }, ev: Event) => {
       ev.preventDefault();
       this.map.dragPan.disable();
-      this.draw.startLngLat = e.lngLat;
-      this.draw.startPoint = { x: e.point.x, y: e.point.y };
+      this.draw.startLngLat = lngLat;
+      this.draw.startPoint = point;
       this.draw.moved = false;
-      this.ensureDomBox(e.point.x, e.point.y);
-    });
+      this.ensureDomBox(point.x, point.y);
+    };
 
-    this.map.on("mousemove", (e) => {
+    const drawMove = (lngLat: maplibregl.LngLat, point: { x: number; y: number }) => {
       if (this.draw.mode === "rect" && this.draw.startLngLat && this.draw.startPoint) {
         this.draw.moved = true;
-        this.updateDomBox(e.point.x, e.point.y);
-        this.setDraft(bboxFromLngLats(this.draw.startLngLat, e.lngLat));
+        this.updateDomBox(point.x, point.y);
+        this.setDraft(bboxFromLngLats(this.draw.startLngLat, lngLat));
       } else if (this.draw.mode === "polygon" && this.draw.polyActive) {
-        this.setPolyDraft([...this.draw.polyVertices, e.lngLat]);
+        this.setPolyDraft([...this.draw.polyVertices, lngLat]);
       }
-    });
+    };
 
-    this.map.on("mouseup", (e) => {
+    const drawEnd = (lngLat: maplibregl.LngLat) => {
       if (this.draw.mode !== "rect" || !this.draw.startLngLat) return;
       const start = this.draw.startLngLat;
       const moved = this.draw.moved;
@@ -568,8 +567,31 @@ export class GlobeMap {
       this.draw.armed = false;
       canvas().style.cursor = "";
       if (!moved) return;
-      const bbox = bboxFromLngLats(start, e.lngLat);
+      const bbox = bboxFromLngLats(start, lngLat);
       this.cb.onDrawComplete({ bbox });
+    };
+
+    // ── Rectangle mode (mouse) ────────────────────────────────────────────────
+    this.map.on("mousedown", (e) => {
+      if (!(e.originalEvent.shiftKey || this.draw.armed) || this.draw.mode !== "rect") return;
+      drawStart(e.lngLat, e.point, e.originalEvent);
+    });
+    this.map.on("mousemove", (e) => drawMove(e.lngLat, e.point));
+    this.map.on("mouseup", (e) => drawEnd(e.lngLat));
+
+    // ── Rectangle mode (touch) ────────────────────────────────────────────────
+    this.map.on("touchstart", (e) => {
+      if (!this.draw.armed || this.draw.mode !== "rect") return;
+      drawStart(e.lngLat, e.point, e.originalEvent);
+    });
+    this.map.on("touchmove", (e) => {
+      if (!this.draw.startLngLat) return;
+      e.originalEvent.preventDefault();
+      drawMove(e.lngLat, e.point);
+    });
+    this.map.on("touchend", (e) => {
+      if (!this.draw.startLngLat) return;
+      drawEnd(e.lngLat);
     });
 
     // ── Polygon mode ─────────────────────────────────────────────────────────
@@ -608,6 +630,29 @@ export class GlobeMap {
       const { lat, lng } = e.lngLat;
       this.cb.onNegativeClick(lat, lng);
     });
+
+    // Long-press (touch) → negative exemplar (mobile equivalent of right-click)
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let longPressLngLat: { lat: number; lng: number } | null = null;
+    this.map.on("touchstart", (e) => {
+      if (this.draw.armed) return;
+      if (e.originalEvent.touches.length !== 1) return;
+      longPressLngLat = e.lngLat;
+      longPressTimer = setTimeout(() => {
+        if (longPressLngLat) {
+          this.cb.onNegativeClick(longPressLngLat.lat, longPressLngLat.lng);
+        }
+        longPressTimer = null;
+        longPressLngLat = null;
+      }, 500);
+    });
+    const cancelLongPress = () => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      longPressLngLat = null;
+    };
+    this.map.on("touchmove", cancelLongPress);
+    this.map.on("touchend", cancelLongPress);
+    this.map.on("touchcancel", cancelLongPress);
 
     this.map.on("click", (e) => {
       if (this.draw.armed && this.draw.mode === "polygon") return;
