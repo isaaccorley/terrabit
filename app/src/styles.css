@@ -1435,26 +1435,28 @@ button { cursor: pointer; border: 0; background: none; }
 
   /* Search bar: full width, below brand */
   .hud-search {
-    width: calc(100vw - 20px);
-    left: 10px;
-    transform: none;
+    width: calc(100vw - 20px) !important;
+    left: 10px !important;
+    transform: none !important;
     top: 52px;
+    animation: none;
   }
   .search-kbd { display: none; }
 
-  /* Status pill: full width, below search */
+  /* Status pill: full width, bottom of screen */
   .hud-status {
-    top: auto;
+    top: auto !important;
     bottom: 10px;
-    left: 10px;
+    left: 10px !important;
     right: 10px;
-    transform: none;
+    transform: none !important;
     max-width: none;
     width: calc(100vw - 20px);
     font-size: 0.75rem;
     padding: 8px 12px;
     justify-content: center;
     text-align: center;
+    animation: none;
   }
   #status-text {
     white-space: nowrap;
@@ -1512,12 +1514,12 @@ button { cursor: pointer; border: 0; background: none; }
     right: 10px !important;
   }
 
-  /* Tutorial trigger: bigger for touch */
+  /* Tutorial trigger: bigger for touch, above status pill */
   .tutorial-trigger {
     width: 36px;
     height: 36px;
     font-size: 15px;
-    bottom: 52px;
+    bottom: 54px;
   }
 }
 
