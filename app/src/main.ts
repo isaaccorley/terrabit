@@ -951,18 +951,26 @@ async function fetchShardCandidates(
 ): Promise<CandidateRow[]> {
   const conn = await db.connect();
   try {
+    const t0 = performance.now();
     const result = await conn.query(buildShardQuery(shardUrl, bbox, polygon));
+    const tQuery = performance.now();
     const rows = result.toArray() as Array<{
       chips_id: string;
       bbox: { xmin: number; ymin: number; xmax: number; ymax: number };
       embedding: unknown;
     }>;
-    return rows.map((row) => ({
+    const mapped = rows.map((row) => ({
       chips_id: row.chips_id,
       bbox: normalizeBBox(row.bbox),
       embedding: normalizeEmbedding(row.embedding),
       shard_path: shardUrl,
     }));
+    const tNorm = performance.now();
+    const shard = shardUrl.split("/").pop() ?? shardUrl;
+    console.debug(
+      `[shard] ${shard}: query=${Math.round(tQuery - t0)}ms  toArray+normalize=${Math.round(tNorm - tQuery)}ms  rows=${rows.length}`,
+    );
+    return mapped;
   } finally {
     await conn.close();
   }
@@ -1650,10 +1658,14 @@ async function addRegion(bbox: BBox, polygon?: [number, number][]): Promise<void
 
   try {
     const db = await getDuckDB();
+
+    performance.mark("region-manifest-start");
     const conn = await db.connect();
     const manifestResult = await conn.query(buildManifestQuery(bbox, polygon));
     const shards = manifestResult.toArray() as ManifestRow[];
     await conn.close();
+    performance.mark("region-manifest-end");
+    performance.measure("region:manifest-query", "region-manifest-start", "region-manifest-end");
     if (regionLoadRunIds.get(id) !== runId) { state.loading = false; return; }
 
     state.regionShardCounts.set(id, shards.length);
@@ -1667,26 +1679,43 @@ async function addRegion(bbox: BBox, polygon?: [number, number][]): Promise<void
     setStatus(`Loading patches from ${shards.length} shard(s) for AOI ${id}…`);
 
     // Query each shard in parallel with bounded concurrency.
+    // Accumulate into regionAll directly; only rebuild candidateRows once at the end
+    // to avoid O(shards * totalRows) .flat() cost that was janking the UI.
     let completed = 0;
+    let statusRafPending = false;
     const shardUrls = shards.map((s) => resolveShardUrl(s.path));
     const regionAll: CandidateRow[] = [];
+    performance.mark("region-shards-start");
     const settled = await mapWithConcurrency(shardUrls, 8, async (url) => {
       const rows = await fetchShardCandidates(db, url, bbox, polygon);
       if (regionLoadRunIds.get(id) !== runId) return rows;
       regionAll.push(...rows);
-      state.regionRows.get(id)!.push(...rows);
-      state.candidateRows = [...state.regionRows.values()].flat();
       completed += 1;
-      setStatus(`AOI ${id} — ${completed}/${shards.length} shards · ${new Intl.NumberFormat().format(state.candidateRows.length)} total patches`);
+      // Throttle status updates to one per frame — avoids redundant DOM writes
+      // when multiple shards resolve in the same microtask batch.
+      if (!statusRafPending) {
+        statusRafPending = true;
+        requestAnimationFrame(() => {
+          statusRafPending = false;
+          setStatus(`AOI ${id} — ${completed}/${shards.length} shards · ${new Intl.NumberFormat().format(regionAll.length)} patches`);
+        });
+      }
       return rows;
     });
+    performance.mark("region-shards-end");
+    performance.measure("region:shard-fetch-all", "region-shards-start", "region-shards-end");
     if (regionLoadRunIds.get(id) !== runId) { state.loading = false; return; }
 
     const failed = settled.filter((r) => r.status === "rejected");
     if (failed.length) console.warn(`AOI ${id} shard fetch failures:`, failed);
 
+    // Single rebuild after all shards are done (was previously per-shard).
+    performance.mark("region-rebuild-start");
     state.regionRows.set(id, regionAll);
     state.candidateRows = [...state.regionRows.values()].flat();
+    performance.mark("region-rebuild-end");
+    performance.measure("region:candidate-rebuild", "region-rebuild-start", "region-rebuild-end");
+
     initScoringWorker(state.candidateRows);
     state.loading = false;
     const totalPatches = new Intl.NumberFormat().format(state.candidateRows.length);
@@ -1694,6 +1723,13 @@ async function addRegion(bbox: BBox, polygon?: [number, number][]): Promise<void
       ? `AOI ${id} loaded — ${totalPatches} total patches. Click anywhere to seed an exemplar.`
       : `AOI ${id} loaded, but no patches returned.`;
     setStatus(failed.length ? `${base} (${failed.length} shard(s) failed)` : base);
+
+    // Log perf summary to console for benchmarking
+    const measures = performance.getEntriesByType("measure").filter((m) => m.name.startsWith("region:"));
+    console.table(measures.map((m) => ({ name: m.name, ms: Math.round(m.duration * 100) / 100 })));
+    measures.forEach((m) => performance.clearMeasures(m.name));
+    performance.clearMarks();
+
     updateView();
 
     if (state.positivePoints.length && state.candidateRows.length) {
