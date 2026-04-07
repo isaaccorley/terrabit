@@ -139,7 +139,7 @@ function renderShell(): void {
         <div class="brand-text">
           <h1>terrabit</h1>
           <p>binary earth embedding retrieval</p>
-          <p class="brand-attribution">by <a href="https://isaac.earth" target="_blank" rel="noopener noreferrer">Isaac Corley</a></p>
+          <p class="brand-attribution">Created by <a href="https://isaac.earth" target="_blank" rel="noopener noreferrer">Isaac Corley</a></p>
         </div>
       </header>
 
@@ -173,31 +173,14 @@ function renderShell(): void {
         </header>
         <div class="draw-row">
           <div class="draw-mode-seg" title="Shape mode">
-            <button id="draw-mode-rect" class="draw-mode-btn is-active" type="button" aria-label="Rectangle mode" title="Rectangle">▢</button>
-            <button id="draw-mode-poly" class="draw-mode-btn" type="button" aria-label="Polygon mode" title="Polygon — click to add vertices, double-click to close">⬡</button>
+            <button id="draw-mode-rect" class="draw-mode-btn" type="button" aria-label="Draw box region" title="Draw a box region">Draw Box</button>
+            <button id="draw-mode-poly" class="draw-mode-btn" type="button" aria-label="Polygon mode" title="Polygon — click to add vertices, double-click to close">Draw Poly</button>
           </div>
-          <button id="draw-btn" class="btn btn-sm btn-primary" type="button">
-            <span id="draw-label">Draw region</span>
-          </button>
           <button id="zoom-region-btn" class="icon-btn" type="button" hidden title="Zoom to region(s)">
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 2H2v4"/><path d="M14 6V2h-4"/><path d="M2 10v4h4"/><path d="M10 14h4v-4"/></svg>
           </button>
         </div>
         <div id="active-regions" class="active-regions"></div>
-        <div class="meta-row">
-          <div class="meta-cell">
-            <dt>Shards</dt>
-            <dd id="m-shards">—</dd>
-          </div>
-          <div class="meta-cell">
-            <dt>Patches</dt>
-            <dd id="m-patches">—</dd>
-          </div>
-          <div class="meta-cell">
-            <dt>ROI</dt>
-            <dd id="m-roi">—</dd>
-          </div>
-        </div>
 
         <div class="panel-split">
           <div class="sub-card">
@@ -210,7 +193,7 @@ function renderShell(): void {
                   <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="6"/><line x1="3" y1="3" x2="13" y2="13"/></svg>
                 </button>
                 <select id="combine-method" class="combine-select" title="Combine method">
-                  <option value="mean">Mean</option>
+                  <option value="mean">MEAN</option>
                   <option value="and">AND</option>
                   <option value="or">OR</option>
                   <option value="xor">XOR</option>
@@ -368,15 +351,10 @@ function els() {
   return {
     status: document.querySelector<HTMLElement>("#status-text"),
     statusPill: document.querySelector<HTMLElement>("#status-pill"),
-    drawBtn: document.querySelector<HTMLButtonElement>("#draw-btn"),
-    drawLabel: document.querySelector<HTMLElement>("#draw-label"),
     drawModeRect: document.querySelector<HTMLButtonElement>("#draw-mode-rect"),
     drawModePoly: document.querySelector<HTMLButtonElement>("#draw-mode-poly"),
     zoomRegionBtn: document.querySelector<HTMLButtonElement>("#zoom-region-btn"),
     activeRegions: document.querySelector<HTMLDivElement>("#active-regions"),
-    mShards: document.querySelector<HTMLElement>("#m-shards"),
-    mPatches: document.querySelector<HTMLElement>("#m-patches"),
-    mRoi: document.querySelector<HTMLElement>("#m-roi"),
     positiveList: document.querySelector<HTMLOListElement>("#positive-list"),
     negativeList: document.querySelector<HTMLOListElement>("#negative-list"),
     negativeSection: document.querySelector<HTMLElement>("#negative-section"),
@@ -690,7 +668,7 @@ function syncSliderFill(input: HTMLInputElement): void {
 
 function updateView(): void {
   const e = els();
-  if (!e.status || !e.drawBtn || !e.drawLabel || !e.positiveList || !e.resultList) return;
+  if (!e.status || !e.positiveList || !e.resultList) return;
 
   e.status.textContent = state.status;
   e.statusPill?.classList.toggle("is-busy", state.loading);
@@ -698,21 +676,9 @@ function updateView(): void {
   const armed = globe?.isArmed() ?? false;
   const polyArmed = armed && globe?.getDrawMode() === "polygon";
   const rectArmed = armed && !polyArmed;
-  e.drawLabel.textContent = armed ? "Drawing…" : "Draw region";
-  e.drawBtn.classList.toggle("is-armed", armed);
+  e.drawModeRect?.classList.toggle("is-armed", rectArmed);
+  e.drawModePoly?.classList.toggle("is-armed", polyArmed);
 
-  const totalShards = [...state.regionShardCounts.values()].reduce((a, b) => a + b, 0);
-  if (e.mShards) e.mShards.textContent = totalShards ? String(totalShards) : "—";
-  if (e.mPatches) e.mPatches.textContent = state.candidateRows.length ? new Intl.NumberFormat().format(state.candidateRows.length) : "—";
-  if (e.mRoi) {
-    if (!state.bboxes.length) e.mRoi.textContent = "—";
-    else if (state.bboxes.length === 1) {
-      const b = state.bboxes[0].bbox;
-      e.mRoi.textContent = `${(b.east - b.west).toFixed(2)}°×${(b.north - b.south).toFixed(2)}°`;
-    } else {
-      e.mRoi.textContent = `${state.bboxes.length} regions`;
-    }
-  }
   if (e.zoomRegionBtn) e.zoomRegionBtn.hidden = state.bboxes.length === 0;
 
   // Active-regions chips
@@ -889,7 +855,7 @@ function updateView(): void {
     if (!state.candidateRows.length) e.resultCount.textContent = "";
     else if (needsExemplars && !state.positivePoints.length) e.resultCount.textContent = "";
     else if (state.viewMode === "threshold")
-      e.resultCount.textContent = `${compactNum(visible.length)} / ${compactNum(activeResults.length)} cutoff`;
+      e.resultCount.textContent = `${compactNum(visible.length)} / ${compactNum(activeResults.length)}`;
     else if (state.viewMode === "topk")
       e.resultCount.textContent = `${visible.length} / ${compactNum(activeResults.length)}`;
     else
@@ -2040,34 +2006,21 @@ function clearAllRegions(): void {
 
 function wire(): void {
   const e = els();
-  let selectedDrawMode: "rect" | "polygon" = "rect";
   e.drawModeRect?.addEventListener("click", () => {
-    selectedDrawMode = "rect";
-    e.drawModeRect?.classList.add("is-active");
-    e.drawModePoly?.classList.remove("is-active");
-    if (globe.isArmed()) {
-      globe.armDraw(true, "rect");
+    const wasArmed = globe.isArmed() && globe.getDrawMode() === "rect";
+    globe.armDraw(!wasArmed, "rect");
+    if (!wasArmed) {
       setStatus("Draw armed — drag on the globe to define a region.");
-      updateView();
+    } else {
+      setStatus("Draw disarmed.");
     }
+    updateView();
   });
   e.drawModePoly?.addEventListener("click", () => {
-    selectedDrawMode = "polygon";
-    e.drawModePoly?.classList.add("is-active");
-    e.drawModeRect?.classList.remove("is-active");
-    if (globe.isArmed()) {
-      globe.armDraw(true, "polygon");
-      setStatus("Polygon draw armed — click to add vertices, double-click to close.");
-      updateView();
-    }
-  });
-  e.drawBtn?.addEventListener("click", () => {
-    const wasArmed = globe.isArmed();
-    globe.armDraw(!wasArmed, selectedDrawMode);
+    const wasArmed = globe.isArmed() && globe.getDrawMode() === "polygon";
+    globe.armDraw(!wasArmed, "polygon");
     if (!wasArmed) {
-      setStatus(selectedDrawMode === "polygon"
-        ? "Polygon draw armed — click to add vertices, double-click to close."
-        : "Draw armed — drag on the globe to define a region.");
+      setStatus("Polygon draw armed — click to add vertices, double-click to close.");
     } else {
       setStatus("Draw disarmed.");
     }
