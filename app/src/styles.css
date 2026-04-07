@@ -285,6 +285,14 @@ button { cursor: pointer; border: 0; background: none; }
   transform: translateY(-1px);
   box-shadow: 0 12px 34px rgba(208, 84, 44, 0.32), 0 0 0 1px rgba(208, 84, 44, 0.42) inset;
 }
+.poly-done-btn {
+  background: linear-gradient(180deg, #38a169 0%, #2f855a 100%) !important;
+  box-shadow: 0 8px 26px rgba(56, 161, 105, 0.28), 0 0 0 1px rgba(56, 161, 105, 0.4) inset !important;
+  animation: fadeSlide 300ms ease-out both;
+}
+.poly-done-btn:hover {
+  box-shadow: 0 12px 34px rgba(56, 161, 105, 0.38), 0 0 0 1px rgba(56, 161, 105, 0.5) inset !important;
+}
 .draw-mode-btn.is-armed {
   background: linear-gradient(180deg, var(--aoi) 0%, #e6a93a 100%);
   box-shadow: 0 8px 26px rgba(229, 168, 83, 0.3), 0 0 0 1px rgba(229, 168, 83, 0.45) inset;
@@ -1464,7 +1472,7 @@ button { cursor: pointer; border: 0; background: none; }
     text-overflow: ellipsis;
   }
 
-  /* Panels: bottom sheet style */
+  /* Panels: compact bottom tray (not a full bottom sheet) */
   .hud-panel {
     position: fixed;
     left: 0 !important;
@@ -1472,28 +1480,136 @@ button { cursor: pointer; border: 0; background: none; }
     top: auto !important;
     bottom: 0;
     width: 100% !important;
-    max-height: 50vh;
-    border-radius: 16px 16px 0 0;
-    padding: 14px 14px 12px;
-    gap: 10px;
+    max-height: 60vh;
+    border-radius: 14px 14px 0 0;
+    padding: 10px 12px 8px;
+    gap: 6px;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
   .hud-panel-left { z-index: 16; }
   .hud-panel-right { z-index: 15; }
 
-  /* Draw buttons: bigger touch targets */
+  /* Hide verbose kickers and headers on mobile — save vertical space */
+  .hud-panel .panel-head { display: none; }
+
+  /* Draw row: compact inline */
+  .draw-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
   .draw-mode-btn {
-    height: 36px;
-    padding: 6px 12px;
-    font-size: 0.78rem;
+    height: 34px;
+    padding: 5px 10px;
+    font-size: 0.74rem;
   }
 
-  /* Exemplar/result list items: bigger tap targets */
-  .ip-item button,
-  .result-item button {
-    min-height: 44px;
+  /* Sub-cards: remove borders/padding, flatten */
+  .sub-card {
+    border: none;
+    padding: 4px 0;
+    margin: 0;
+    background: transparent !important;
+    gap: 6px;
   }
+  .panel-split {
+    gap: 4px;
+  }
+  .panel-split > .sub-card { min-height: auto; }
+
+  /* Exemplar section: inline summary, not a full list */
+  .sub-head { gap: 4px; }
+  .sub-head .panel-kicker { font-size: 8px; }
+  .sub-head-actions { gap: 4px; }
+  .sub-head-actions .icon-btn { width: 24px; height: 24px; }
+  .combine-select { font-size: 9px; height: 22px; padding: 0 4px; }
+  .count-badge { min-width: 18px; height: 18px; font-size: 10px; padding: 0 5px; }
+
+  /* Exemplar list: horizontal scroll, compact chips */
+  .exemplar-list {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 4px;
+    max-height: none;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+  .exemplar-list li {
+    flex-shrink: 0;
+  }
+  .exemplar-list li button {
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .ex-coord { display: none; }
+
+  /* View toggle: icons only, tight grid */
+  .view-toggle {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2px;
+    padding: 2px;
+    border-radius: 8px;
+  }
+  .view-tab {
+    padding: 5px 2px 4px;
+    gap: 1px;
+  }
+  .view-tab svg { width: 12px; height: 12px; }
+  .view-label { font-size: 6px; }
+
+  /* Slider controls: compact */
+  .slider-row { padding: 6px 8px; }
+  .slider span { font-size: 10px; }
+  .threshold-control { padding: 6px 8px; }
+  .histogram-wrap { height: 28px; }
+
+  /* Result list: compact, horizontal scroll */
+  .result-list {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 4px;
+    max-height: 52px;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+  .result-list li { flex-shrink: 0; }
+  .result-list li button {
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .rank-coord { display: none; }
+
+  /* Legends: inline and compact */
+  .heatmap-legend { padding: 4px 6px; }
+  .legend-labels { font-size: 8px; }
+
+  /* Action row: smaller export button */
+  .action-row .btn { font-size: 10px; padding: 4px 8px; }
+
+  /* Negative section */
+  .neg-header { margin-top: 2px; padding-top: 4px; }
+  .negative-list {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 4px;
+  }
+
+  /* Active regions: compact */
+  .active-regions { gap: 4px; }
+  .region-chip { font-size: 9px; padding: 3px 6px; }
 
   /* Tutorial card: full-width on mobile */
   .tut-card {

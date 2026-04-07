@@ -25,6 +25,7 @@ export type MapCallbacks = {
   onNegativeClick: (lat: number, lng: number) => void;
   onResultHover: (result: RankedRow | null) => void;
   onResultPick: (result: RankedRow) => void;
+  onPolyVertexChange?: (count: number) => void;
   getBBox: () => BBox | null;
   getResults: () => RankedRow[];
   getTopK: () => number;
@@ -508,6 +509,13 @@ export class GlobeMap {
     this.draw.mode = mode;
     const c = this.map.getCanvas();
     c.style.cursor = on ? "crosshair" : "";
+    // Disable double-click zoom while in polygon mode so it doesn't
+    // conflict with double-click-to-close on desktop.
+    if (on && mode === "polygon") {
+      this.map.doubleClickZoom.disable();
+    } else if (!on) {
+      this.map.doubleClickZoom.enable();
+    }
   }
 
   isArmed(): boolean {
@@ -528,6 +536,29 @@ export class GlobeMap {
     this.setDraft(null);
     this.setPolyDraft(null);
     this.map.dragPan.enable();
+  }
+
+  /** Close the current polygon (if ≥ 3 vertices). Used by the mobile "Done" button. */
+  finishPolygon(): boolean {
+    if (this.draw.mode !== "polygon" || this.draw.polyVertices.length < 3) return false;
+    const verts = this.draw.polyVertices;
+    const ring: [number, number][] = [
+      ...verts.map((v) => [v.lng, v.lat] as [number, number]),
+      [verts[0].lng, verts[0].lat],
+    ];
+    const bbox = ringToBBox(ring);
+    this.draw.polyVertices = [];
+    this.draw.polyActive = false;
+    this.draw.armed = false;
+    this.map.getCanvas().style.cursor = "";
+    this.setPolyDraft(null);
+    this.cb.onDrawComplete({ bbox, polygon: ring });
+    return true;
+  }
+
+  /** Number of polygon vertices currently placed. */
+  getPolyVertexCount(): number {
+    return this.draw.polyVertices.length;
   }
 
   private wireDrawing(): void {
@@ -601,6 +632,7 @@ export class GlobeMap {
       this.draw.polyActive = true;
       this.draw.polyVertices.push(e.lngLat);
       this.setPolyDraft([...this.draw.polyVertices]);
+      this.cb.onPolyVertexChange?.(this.draw.polyVertices.length);
     });
 
     this.map.on("dblclick", (e) => {

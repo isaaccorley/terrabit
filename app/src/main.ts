@@ -175,6 +175,7 @@ function renderShell(): void {
           <div class="draw-mode-seg" title="Shape mode">
             <button id="draw-mode-rect" class="draw-mode-btn" type="button" aria-label="Draw box region" title="Draw a box region">Draw Box</button>
             <button id="draw-mode-poly" class="draw-mode-btn" type="button" aria-label="Polygon mode" title="Polygon — click to add vertices, double-click to close">Draw Poly</button>
+            <button id="poly-done-btn" class="draw-mode-btn poly-done-btn" type="button" hidden aria-label="Finish polygon">Done ✓</button>
           </div>
           <button id="zoom-region-btn" class="icon-btn" type="button" hidden title="Zoom to region(s)">
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 2H2v4"/><path d="M14 6V2h-4"/><path d="M2 10v4h4"/><path d="M10 14h4v-4"/></svg>
@@ -353,6 +354,7 @@ function els() {
     statusPill: document.querySelector<HTMLElement>("#status-pill"),
     drawModeRect: document.querySelector<HTMLButtonElement>("#draw-mode-rect"),
     drawModePoly: document.querySelector<HTMLButtonElement>("#draw-mode-poly"),
+    polyDoneBtn: document.querySelector<HTMLButtonElement>("#poly-done-btn"),
     zoomRegionBtn: document.querySelector<HTMLButtonElement>("#zoom-region-btn"),
     activeRegions: document.querySelector<HTMLDivElement>("#active-regions"),
     positiveList: document.querySelector<HTMLOListElement>("#positive-list"),
@@ -2020,11 +2022,23 @@ function wire(): void {
     const wasArmed = globe.isArmed() && globe.getDrawMode() === "polygon";
     globe.armDraw(!wasArmed, "polygon");
     if (!wasArmed) {
-      setStatus("Polygon draw armed — click to add vertices, double-click to close.");
+      const hint = isMobileViewport()
+        ? "Polygon draw armed — tap to add vertices, tap Done to close."
+        : "Polygon draw armed — click to add vertices, double-click to close.";
+      setStatus(hint);
     } else {
       setStatus("Draw disarmed.");
     }
+    syncPolyDoneBtn();
     updateView();
+  });
+
+  // "Done" button to close polygon (essential on mobile where dblclick = zoom)
+  e.polyDoneBtn?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    if (globe.finishPolygon()) {
+      syncPolyDoneBtn();
+    }
   });
   e.zoomRegionBtn?.addEventListener("click", () => {
     if (!state.bboxes.length) return;
@@ -2219,6 +2233,7 @@ function bootstrap(): void {
   if (!mapEl) throw new Error("#map missing");
   globe = new GlobeMap(mapEl, {
     onDrawComplete: ({ bbox, polygon }) => {
+      syncPolyDoneBtn();
       void addRegion(bbox, polygon);
     },
     onAoiClick: (lat, lng) => addPositive(lat, lng),
@@ -2228,6 +2243,7 @@ function bootstrap(): void {
       const c = centroid(row.bbox);
       addPositive(c.lat, c.lng);
     },
+    onPolyVertexChange: () => syncPolyDoneBtn(),
     getBBox: () => state.bboxes[state.bboxes.length - 1]?.bbox ?? null,
     getResults: () => state.results,
     getTopK: () => state.topK,
@@ -2490,6 +2506,18 @@ function tutorialGetEl(): { overlay: HTMLElement; card: HTMLElement } {
   return { overlay: tutorialOverlay, card: tutorialCard };
 }
 
+function isMobileViewport(): boolean {
+  return window.innerWidth <= 600;
+}
+
+/** Show/hide the polygon "Done" button based on vertex count + armed state. */
+function syncPolyDoneBtn(): void {
+  const btn = document.querySelector<HTMLButtonElement>("#poly-done-btn");
+  if (!btn) return;
+  const show = globe.isArmed() && globe.getDrawMode() === "polygon" && globe.getPolyVertexCount() >= 3;
+  btn.hidden = !show;
+}
+
 function tutorialPositionCard(
   card: HTMLElement,
   target: Element | null,
@@ -2502,9 +2530,11 @@ function tutorialPositionCard(
   const ch = card.offsetHeight || 200;
   const margin = 18;
 
-  if (!target || placement === "center") {
+  // On mobile, always center the card — panel targets are bottom sheets
+  // and "right"/"left" placement doesn't make sense.
+  if (!target || placement === "center" || isMobileViewport()) {
     card.style.left = `${(vw - cw) / 2}px`;
-    card.style.top = `${(vh - ch) / 2}px`;
+    card.style.top = `${Math.max(margin, (vh - ch) / 3)}px`; // upper-third on mobile
     return;
   }
 
@@ -2568,11 +2598,12 @@ function tutorialRender(): void {
   const target = step.target ? document.querySelector(step.target) : null;
   const placement = step.placement ?? "bottom";
   const padding = step.padding ?? 10;
-  const isCenter = placement === "center" || !target;
+  const mobile = isMobileViewport();
+  const isCenter = placement === "center" || !target || mobile;
   const total = TUTORIAL_STEPS.length;
   const idx = tutorialState.step;
 
-  // Paint overlay + spotlight
+  // Paint overlay + spotlight (skip spotlight on mobile — targets are bottom sheets)
   tutorialPaintShadowOverlay(overlay, isCenter ? null : target, padding);
 
   // Build card HTML
